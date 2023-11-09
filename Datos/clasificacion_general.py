@@ -23,7 +23,7 @@ def insertar_datos_clasificacion_general(cnn, datos_usuarios):
 
             if user_id:
                 # Consultar si el usuario ya tiene un registro en Clasificacion_general
-                sql_select_user_clasif = "SELECT * FROM Clasificacion_general WHERE UsuarioID = %s"
+                sql_select_user_clasif = "SELECT * FROM clasificacion_general WHERE UsuarioID = %s"
                 cursor.execute(sql_select_user_clasif, (user_id[0],))
                 existing_user_clasif = cursor.fetchone()
 

@@ -13,6 +13,7 @@ from jugadores import insertar_jugadores
 from mercado_jugadores import insertar_datos_mercado
 from panel_principal import datos_tarjeta
 from insert_jornada import insertar_datos_clasificacion_jornada
+from grafico_jornada import grafico_jornada
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -32,22 +33,23 @@ nombre_robo = "J. Carlos Martín"
 temporada = "23/24"
 
 def main():
-    cnn = connect_to_mysql()
-    #driver = iniciar_sesion()
+    #cnn = connect_to_mysql()
+    driver = iniciar_sesion()
 
     #datos_jornadas = obtener_clasificacion_jornada(driver)  #No funciona 20231001. Pasamos a crear un script de insertado a mano.
     #print(datos_jornadas)
-    insertar_datos_clasificacion_jornada(cnn)
+    #insertar_datos_clasificacion_jornada(cnn)
+    #grafico_jornada(cnn)
     #datos_usuarios = obtener_clasificacion_general(driver)  # Funciona 20230724
     #insertar_datos_usuarios(cnn,datos_usuarios)
-    # insertar_datos_clasificacion_general(cnn,datos_usuarios)
-    # insertar_datos_jornada(cnn,datos_jornadas)  # Probar cuando existan las jornadas
-    # datos_mercado = obtener_mercado(driver)  # Funciona 20230724
+    #insertar_datos_clasificacion_general(cnn,datos_usuarios)
+    #insertar_datos_jornada(cnn,datos_jornadas)  # Probar cuando existan las jornadas
+    #datos_mercado = obtener_mercado(driver)  # Funciona 20230724
     # insertar_datos_mercado(cnn,datos_mercado,temporada)
     # robo_jugador(driver,nombre_usuario,nombre_robo)  # Funciona 20230724
     # datos_jugadores = obtener_jugadores(driver)  # Funciona 20230724
     # insertar_jugadores(cnn,datos_jugadores,temporada)
-    # obtener_datos_jugador(driver)  # Funciona 20230925
+    obtener_datos_jugador(driver)  # Funciona 20230925
     # datos_tarjeta(driver,temporada)  # Hay que pensar como modificarlo
     # print(datos_tarjetas)
     # print("hola")

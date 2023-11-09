@@ -5,7 +5,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait,Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException,StaleElementReferenceException
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 import json, re, csv
@@ -172,62 +172,37 @@ def obtener_datos_jugador(driver):
             eventos_div = element.find_elements(By.XPATH, './/div[@class="bar"]')
             # Iterar sobre cada elemento div que contiene elementos SVG
             for evento in eventos_div:
-                # Localizar los elementos SVG dentro del div actual
-                #elementos_svg = evento.find_elements(By.XPATH, './/*[local-name()="svg"]')
-                # Inicializar un diccionario para almacenar los datos del evento actual
-                datos_evento = {}
-                # Iterar sobre los elementos SVG encontrados
-                #for elemento_svg in evento:
-                # Hacer clic en el elemento SVG
-                evento.click()
-                # Esperar a que se cargue la parte de abajo del SVG (puedes ajustar el tiempo de espera según tus necesidades)
-                wait = WebDriverWait(driver, 50)
-                time.sleep(0.5)
-                parte_abajo_svg = wait.until(EC.presence_of_element_located((By.XPATH, './/div[@class="footer"]')))
-                parte_abajo_svg.click()
-                # Localiza la tabla que contiene los campos y valores dentro del elemento "parte_abajo_svg"
-                tabla = wait.until(EC.presence_of_element_located((By.XPATH, './/div[contains(@class, "content player-breakdown")]')))
-                time.sleep(0.5)
-                #tabla = parte_abajo_svg.find_element(By.XPATH, './/div[contains(@class, "content player-breakdown")]')
-                # Inicializa un diccionario para almacenar los campos y sus valores
-                datos_jugador = {}
-                # Localiza todos los elementos 'tr' dentro de la tabla
-                filas = tabla.find_elements(By.TAG_NAME, 'tr')
-                # Itera sobre cada fila de la tabla (ignorando la primera fila que contiene encabezados)
-                for fila in filas[0:]:
-                    # Encuentra los elementos 'td' en la fila
-                    columnas = fila.find_elements(By.TAG_NAME, 'td')
-                    
-                    # Extrae el texto del primer 'td' como nombre del campo y el texto del segundo 'td' como valor
-                    campo = columnas[0].text
-                    valor = columnas[1].text
-                    
-                    # Almacena el campo y valor en el diccionario
-                    datos_jugador[campo] = valor
-                popup = wait.until(EC.presence_of_element_located((By.ID, 'popup')))
-
-                # Hacer clic en el botón de cierre
-                button_close = popup.find_element(By.XPATH, './/button[@class="popup-close btn go-back"]')
-                button_close.click()
-
-                #TENEMOS QUE VER LA MANERA DE RECOGER LOS EVENTOS DENTRO DE UN EVENTO, NO TODOS LOS EVENTOS PARA CADA EVENTO
-                """
-                for a in evento_partido:
-                    b = a.get_attribute('href')
-                    if b.endswith("#events-goal"):
-                        eventos_gol.append(b)
-            # Agregar los eventos de gol de esta jornada a la lista principal
-            eventos_gol_por_jornada.append(eventos_gol)
-            """
-            #time.sleep(5000)
-            # Imprimir el número de la jornada, los puntos y los eventos
-            print("GW:", gw)
-            print("Score:", score)
-            print("Bar Negative Text:", bar_negative_text)
-            print("Datos jonada", datos_jugador)
-            #print(evento)
-            print("---------")
-
+                datos_jugador = {}  # Asegúrate de reiniciar los datos del jugador para cada evento
+                intentos = 3  # Número de reintentos
+                while intentos > 0:
+                    try:
+                        evento.click()
+                        wait.until(EC.presence_of_element_located((By.XPATH, './/div[@class="footer"]'))).click()
+                        tabla = wait.until(EC.presence_of_element_located((By.XPATH, './/div[contains(@class, "content player-breakdown")]')))
+                        filas = tabla.find_elements(By.TAG_NAME, 'tr')
+                        for fila in filas:
+                            columnas = fila.find_elements(By.TAG_NAME, 'td')
+                            if len(columnas) == 2:  # Asegúrate de que hay dos columnas para evitar errores
+                                campo = columnas[0].text
+                                valor = columnas[1].text
+                                datos_jugador[campo] = valor
+                        # Una vez que has recogido los datos, intenta cerrar el popup
+                        if wait.until(EC.presence_of_element_located((By.ID, 'popup'))):
+                            driver.find_element(By.CSS_SELECTOR, '#popup .popup-close').click()
+                        break  # Si todo salió bien, rompe el ciclo while
+                    except StaleElementReferenceException:
+                        intentos -= 1  # Decrementa el contador de intentos y vuelve a intentar
+                        if intentos == 0:
+                            print("No se pudo recuperar la información del evento después de varios intentos.")
+                    except Exception:
+                        datos_jugador['Error'] = 'No jugó la joranda'
+                        break
+                # Imprimir el número de la jornada, los puntos y los eventos
+                print("GW:", gw)
+                print("Score:", score)
+                print("Bar Negative Text:", bar_negative_text)
+                print("Datos jonada", datos_jugador)
+                print("---------")
         # Encuentra el contenedor principal
         box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')
 
