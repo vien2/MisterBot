@@ -36,8 +36,8 @@ def main():
     #cnn = connect_to_mysql()
     driver = iniciar_sesion()
 
-    #datos_jornadas = obtener_clasificacion_jornada(driver)  #No funciona 20231001. Pasamos a crear un script de insertado a mano.
-    #print(datos_jornadas)
+    datos_jornadas = obtener_clasificacion_jornada(driver)  #Funciona 20230130
+    print(datos_jornadas)
     #insertar_datos_clasificacion_jornada(cnn)
     #grafico_jornada(cnn)
     #datos_usuarios = obtener_clasificacion_general(driver)  # Funciona 20230724
@@ -49,13 +49,13 @@ def main():
     # robo_jugador(driver,nombre_usuario,nombre_robo)  # Funciona 20230724
     # datos_jugadores = obtener_jugadores(driver)  # Funciona 20230724
     # insertar_jugadores(cnn,datos_jugadores,temporada)
-    obtener_datos_jugador(driver)  # Funciona 20230925
+    #obtener_datos_jugador(driver)  # Funciona 20230925
     # datos_tarjeta(driver,temporada)  # Hay que pensar como modificarlo
     # print(datos_tarjetas)
     # print("hola")
 
-    #driver.quit()
-    cnn.close()
+    driver.quit()
+    #cnn.close()
 
 if __name__ == "__main__":
     main()
