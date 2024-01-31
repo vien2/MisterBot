@@ -160,7 +160,6 @@ def obtener_datos_jugador(driver):
             
             # Buscar elementos con la clase "bar negative"
             bar_negatives = element.find_elements(By.XPATH, './/div[contains(@class, "bar negative")]')
-            
             if bar_negatives:
                 bar_negative_text = bar_negatives[0].text
             else:
@@ -169,39 +168,50 @@ def obtener_datos_jugador(driver):
             #EVENTOS: TARJETAS GOLES ETC
             # Obtener el elemento <div> con la clase "events"
             #eventos_div = element.find_elements(By.XPATH, './/div[contains(@class, "events")]')
-            eventos_div = element.find_elements(By.XPATH, './/div[@class="bar"]')
-            # Iterar sobre cada elemento div que contiene elementos SVG
-            for evento in eventos_div:
-                datos_jugador = {}  # Asegúrate de reiniciar los datos del jugador para cada evento
-                intentos = 3  # Número de reintentos
-                while intentos > 0:
-                    try:
-                        evento.click()
-                        wait.until(EC.presence_of_element_located((By.XPATH, './/div[@class="footer"]'))).click()
-                        tabla = wait.until(EC.presence_of_element_located((By.XPATH, './/div[contains(@class, "content player-breakdown")]')))
-                        filas = tabla.find_elements(By.TAG_NAME, 'tr')
-                        for fila in filas:
-                            columnas = fila.find_elements(By.TAG_NAME, 'td')
-                            if len(columnas) == 2:  # Asegúrate de que hay dos columnas para evitar errores
-                                campo = columnas[0].text
-                                valor = columnas[1].text
-                                datos_jugador[campo] = valor
-                        # Una vez que has recogido los datos, intenta cerrar el popup
-                        if wait.until(EC.presence_of_element_located((By.ID, 'popup'))):
-                            driver.find_element(By.CSS_SELECTOR, '#popup .popup-close').click()
-                        break  # Si todo salió bien, rompe el ciclo while
-                    except StaleElementReferenceException:
-                        intentos -= 1  # Decrementa el contador de intentos y vuelve a intentar
-                        if intentos == 0:
-                            print("No se pudo recuperar la información del evento después de varios intentos.")
-                    except Exception:
-                        datos_jugador['Error'] = 'No jugó la joranda'
-                        break
-                # Imprimir el número de la jornada, los puntos y los eventos
-                print("GW:", gw)
-                print("Score:", score)
-                print("Bar Negative Text:", bar_negative_text)
-                print("Datos jonada", datos_jugador)
+            print("GW:", gw)
+            print("Score:", score)
+            print("Bar Negative Text:", bar_negative_text)
+            datos_jugador = {}
+
+            if "Sancionado" in bar_negative_text:
+                datos_jugador['Error'] = 'Sancionado'
+                print("Datos jornada", datos_jugador)
+                continue  # Salta al siguiente elemento en el bucle for
+            elif (score == "Sin puntuación" and not bar_negatives):
+                datos_jugador['Error'] = 'No jugó la joranda'
+                print("Datos jornada", datos_jugador)
+                continue  # Salta al siguiente elemento en el bucle for
+            else:
+                eventos_div = element.find_elements(By.XPATH, './/div[@class="bar"]')
+                # Iterar sobre cada elemento div que contiene elementos SVG
+                for evento in eventos_div:
+                    #datos_jugador = {}  # Asegúrate de reiniciar los datos del jugador para cada evento
+                    intentos = 3  # Número de reintentos
+                    while intentos > 0:
+                        try:
+                            evento.click()
+                            wait.until(EC.presence_of_element_located((By.XPATH, './/div[@class="footer"]'))).click()
+                            tabla = wait.until(EC.presence_of_element_located((By.XPATH, './/div[contains(@class, "content player-breakdown")]')))
+                            filas = tabla.find_elements(By.TAG_NAME, 'tr')
+                            for fila in filas:
+                                columnas = fila.find_elements(By.TAG_NAME, 'td')
+                                if len(columnas) == 2:  # Asegúrate de que hay dos columnas para evitar errores
+                                    campo = columnas[0].text
+                                    valor = columnas[1].text
+                                    datos_jugador[campo] = valor
+                            # Una vez que has recogido los datos, intenta cerrar el popup
+                            if wait.until(EC.presence_of_element_located((By.ID, 'popup'))):
+                                driver.find_element(By.CSS_SELECTOR, '#popup .popup-close').click()
+                            break  # Si todo salió bien, rompe el ciclo while
+                        except StaleElementReferenceException:
+                            intentos -= 1  # Decrementa el contador de intentos y vuelve a intentar
+                            if intentos == 0:
+                                print("No se pudo recuperar la información del evento después de varios intentos.")
+                        except Exception:
+                            datos_jugador['Error'] = 'No jugó la joranda'
+                            break
+                    # Imprimir el número de la jornada, los puntos y los eventos
+                    print("Datos jonada", datos_jugador)
                 print("---------")
         # Encuentra el contenedor principal
         box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')

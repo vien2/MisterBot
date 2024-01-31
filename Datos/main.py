@@ -36,20 +36,22 @@ def main():
     #cnn = connect_to_mysql()
     driver = iniciar_sesion()
 
-    datos_jornadas = obtener_clasificacion_jornada(driver)  #Funciona 20230130
-    print(datos_jornadas)
+    #datos_jornadas = obtener_clasificacion_jornada(driver)  #Funciona 20230130
+    #print(datos_jornadas)
     #insertar_datos_clasificacion_jornada(cnn)
     #grafico_jornada(cnn)
-    #datos_usuarios = obtener_clasificacion_general(driver)  # Funciona 20230724
+    #datos_usuarios = obtener_clasificacion_general(driver)  # Funciona 20230130
+    #print(datos_usuarios)
     #insertar_datos_usuarios(cnn,datos_usuarios)
     #insertar_datos_clasificacion_general(cnn,datos_usuarios)
     #insertar_datos_jornada(cnn,datos_jornadas)  # Probar cuando existan las jornadas
     #datos_mercado = obtener_mercado(driver)  # Funciona 20230724
     # insertar_datos_mercado(cnn,datos_mercado,temporada)
     # robo_jugador(driver,nombre_usuario,nombre_robo)  # Funciona 20230724
-    # datos_jugadores = obtener_jugadores(driver)  # Funciona 20230724
+    #datos_jugadores = obtener_jugadores(driver)  # Funciona 20230130
+    #print(datos_jugadores)
     # insertar_jugadores(cnn,datos_jugadores,temporada)
-    #obtener_datos_jugador(driver)  # Funciona 20230925
+    obtener_datos_jugador(driver)  # Funciona 20230130
     # datos_tarjeta(driver,temporada)  # Hay que pensar como modificarlo
     # print(datos_tarjetas)
     # print("hola")
