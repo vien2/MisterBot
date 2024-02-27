@@ -45,14 +45,14 @@ def main():
     #insertar_datos_usuarios(cnn,datos_usuarios)
     #insertar_datos_clasificacion_general(cnn,datos_usuarios)
     #insertar_datos_jornada(cnn,datos_jornadas)  # Probar cuando existan las jornadas
-    #datos_mercado = obtener_mercado(driver)  # Funciona 20230724
+    #datos_mercado = obtener_mercado(driver)  # Funciona 20240227
     #print(datos_mercado)
     # insertar_datos_mercado(cnn,datos_mercado,temporada)
     # robo_jugador(driver,nombre_usuario,nombre_robo)  # Funciona 20230724
     #datos_jugadores = obtener_jugadores(driver)  # Funciona 20230130
     #print(datos_jugadores)
     # insertar_jugadores(cnn,datos_jugadores,temporada)
-    obtener_datos_jugador(driver)  # Funciona 20230130
+    #obtener_datos_jugador(driver)  # Funciona 20230130
     #la función de arriba devuelve datos_jugador, datos_jornada, transferencias, historial_puntos, historial_valores
     # datos_tarjeta(driver,temporada)  # Hay que pensar como modificarlo
     # print(datos_tarjetas)

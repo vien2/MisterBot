@@ -34,9 +34,17 @@ def obtener_mercado(driver):
     lista_jugadores = soup.select('ul.player-list.list-sale.search-players-list > li')
 
     for jugador in lista_jugadores:
+        # Comprueba si el jugador tiene el atributo style con "display: none"
+        estilo_jugador = jugador.get('style', '')  # Obtiene el atributo style del jugador, si no existe, devuelve una cadena vacía
+        if "display: none" in estilo_jugador:
+            continue  # Si el jugador tiene "display: none", lo salta y no lo añade a los datos_mercado
         nombre = jugador.select_one('div.info > div.name').text.strip()
         puntuacion = jugador.select_one('div.points').text.strip()
-        precio = jugador.select_one('button.btn-popup.btn-bid.btn-grey').text.strip()
+        precio = jugador.select_one('button.btn-popup.btn-bid.btn-green, button.btn-popup.btn-bid.btn-grey')
+        if precio:
+            precio = precio.text.strip()
+        else:
+            precio = "No disponible"  # O cualquier manejo de error que prefieras
         puntuacion_media = jugador.select_one('div.avg').text.strip()
 
         datos_jugador = {
@@ -47,5 +55,5 @@ def obtener_mercado(driver):
         }
 
         datos_mercado.append(datos_jugador)
-    
+    print(datos_mercado)
     return datos_mercado
