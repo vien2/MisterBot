@@ -32,24 +32,25 @@ def iniciar_sesion():
   wait = WebDriverWait(driver, 10)
   boton_aceptar = wait.until(EC.element_to_be_clickable((By.ID, "didomi-notice-agree-button")))
   boton_aceptar.click()
-
+  
   boton_siguiente = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Siguiente')]")))
   boton_siguiente.click()
-
+  
   boton_siguiente_2 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Siguiente')]")))
   boton_siguiente_2.click()
-
+  
   boton_siguiente_3 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Siguiente')]")))
   boton_siguiente_3.click()
-
+  
   boton_siguiente_4 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Empezar')]")))
   boton_siguiente_4.click()
-
-  boton_siguiente_5 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), ' Continuar con Email ')]")))
+  #time.sleep(5000)
+  boton_siguiente_5 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Continuar con Email')]")))
   boton_siguiente_5.click()
-
+  #time.sleep(5000)
   # Localizar los campos de correo electrónico y contraseña
-  campo_correo = driver.find_element(By.CSS_SELECTOR, "#email")
+  time.sleep(2)
+  campo_correo = driver.find_element(By.ID, "email")
   campo_contraseña = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
 
   # Limpiar los campos (opcional, si es necesario)
@@ -65,7 +66,7 @@ def iniciar_sesion():
   campo_correo.send_keys(correo_electronico)
   campo_contraseña.send_keys(contraseña)
 
-  boton_siguiente_5 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), ' Continuar ')]")))
+  boton_siguiente_5 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), ' Continuar')]")))
   boton_siguiente_5.click()
 
   return driver

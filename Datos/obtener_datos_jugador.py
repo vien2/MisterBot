@@ -60,6 +60,7 @@ def obtener_datos_jugador(driver):
         player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
         url_jugadores.append(player_url)
     for player_url in url_jugadores:
+        datos_jugador = {}
         driver.get(player_url)
         name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
         surname  = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
@@ -84,7 +85,10 @@ def obtener_datos_jugador(driver):
         # Obtener la posición del jugador según el mapeo
         position = position_mapping.get(position_number, 'Desconocida')
 
-        print(f"Nombre: {name}, Apellido: {surname}, Posición: {position}")
+        #print(f"Nombre: {name}, Apellido: {surname}, Posición: {position}")
+        datos_jugador['Nombre'] = name
+        datos_jugador['Apellido'] = surname
+        datos_jugador['Posicion'] = position
         # Encontrar el elemento de la sección de estadísticas del jugador
         stats_wrapper = driver.find_element(By.CLASS_NAME, 'player-stats-wrapper')
 
@@ -110,13 +114,20 @@ def obtener_datos_jugador(driver):
 
 
         # Imprimir los valores
-        print(f"Valor: {valor}")
-        print(f"Cláusula: {claúsula}")
-        print(f"Puntos: {puntos}")
-        print(f"Media: {media}")
-        print(f"Partidos: {partidos}")
-        print(f"Goles: {goles}")
-        print(f"Tarjetas: {tarjetas}")
+        #print(f"Valor: {valor}")
+        #print(f"Cláusula: {claúsula}")
+        #print(f"Puntos: {puntos}")
+        #print(f"Media: {media}")
+        #print(f"Partidos: {partidos}")
+        #print(f"Goles: {goles}")
+        #print(f"Tarjetas: {tarjetas}")
+        datos_jugador['Valor'] = valor
+        datos_jugador['Clausula'] = claúsula
+        datos_jugador['Puntos'] = puntos
+        datos_jugador['Media'] = media
+        datos_jugador['Partidos'] = partidos
+        datos_jugador['Goles'] = goles
+        datos_jugador['Tarjetas'] = tarjetas
 
         try:
             owner_element = driver.find_element(By.XPATH, '//div[@class="box box-owner"]')
@@ -127,26 +138,35 @@ def obtener_datos_jugador(driver):
                 owner_name = owner_info.group(1)
                 owner_date = owner_info.group(2)
                 owner_price = owner_info.group(3)
-                print(f"Propietario: {owner_name}, Fecha: {owner_date}, Precio: {owner_price}")
+                #print(f"Propietario: {owner_name}, Fecha: {owner_date}, Precio: {owner_price}")
+                datos_jugador['Propietario'] = owner_name
+                datos_jugador['Fecha'] = owner_date
+                datos_jugador['Precio'] = owner_price
             elif re.search(r'De (.+)', owner_text):
                 owner_name = re.search(r'De (.+)', owner_text).group(1)
-                print(f"Propietario: {owner_name}")
+                #print(f"Propietario: {owner_name}")
+                datos_jugador['Propietario'] = owner_name
             else:
                 print("Información del propietario no válida")
+                datos_jugador['Propietario'] = "Información del propietario no válida"
         
         except NoSuchElementException:
-            print("Jugador libre")
+            #print("Jugador libre")
+            datos_jugador['Propietario'] = "Jugador libre"
         
         try:
             alert_status = driver.find_element(By.XPATH, '//div[@class="box alert-status"]')
             alert_text = alert_status.text
-            print(alert_text)
+            #print(alert_text)
+            datos_jugador['Alerta'] = alert_text
         except NoSuchElementException:
-            print("Jugador sin alertas")
+            #print("Jugador sin alertas")
+            datos_jugador['Alerta'] = "Jugador sin alertas"
 
         elements = driver.find_elements(By.XPATH, '//div[@class="line btn btn-player-gw"]')
-
+        datos_jornadas = []
         for element in elements:
+            datos_jornada = {}
             gw = element.find_element(By.XPATH, './/div[@class="gw"]').text
             
             # Buscar elementos con la clase "score"
@@ -157,7 +177,32 @@ def obtener_datos_jugador(driver):
             else:
                 # Si no se encuentra ningún elemento con la clase "score", asignar un valor predeterminado
                 score = "Sin puntuación"
+
             
+            eventos_jornada = []
+            # Buscar el contenedor de eventos
+            eventos_div = element.find_elements(By.XPATH, './/div[contains(@class, "events")]')
+            # Iterar sobre cada SVG dentro del contenedor de eventos
+            for div in eventos_div:
+                eventos_use = div.find_elements(By.XPATH, ".//*[name()='svg' and @class='match-event']")
+                # Iterar sobre cada elemento 'use' para extraer el atributo 'href'
+                for use in eventos_use:
+                    # Asegurarse de que la búsqueda sea relativa al elemento 'use' actual
+                    evento_href_element = use.find_element(By.XPATH, ".//*[contains(@href, 'events')]")  # Cambio aquí: './/*' en lugar de '//*'
+                    if evento_href_element:
+                        # Extraer el tipo de evento basado en el ID del SVG
+                        evento_href = evento_href_element.get_attribute('href')
+                        # Aquí debes aplicar split en evento_href que es un string, no en evento_href_element que es un WebElement
+                        tipo_evento = evento_href.split('#')[1] if '#' in evento_href else evento_href
+                        #print(tipo_evento)  # Esto debería mostrar el tipo de evento (por ejemplo, 'events-goal')
+                        
+                        # Añadir el tipo de evento a la lista de eventos de la jornada
+                        eventos_jornada.append(tipo_evento)
+            datos_jornada['Nombre'] = name
+            datos_jornada['Apellidos'] = surname
+            datos_jornada['Jornada'] = gw
+            datos_jornada['Puntuacion'] = score
+            datos_jornada['Eventos'] = eventos_jornada
             # Buscar elementos con la clase "bar negative"
             bar_negatives = element.find_elements(By.XPATH, './/div[contains(@class, "bar negative")]')
             if bar_negatives:
@@ -165,21 +210,22 @@ def obtener_datos_jugador(driver):
             else:
                 # Si no se encuentra ningún elemento con la clase "bar negative", asignar un valor predeterminado
                 bar_negative_text = "Sin texto de sanción o lesión"
+                datos_jornada['SancionOLesion'] = bar_negative_text
             #EVENTOS: TARJETAS GOLES ETC
             # Obtener el elemento <div> con la clase "events"
             #eventos_div = element.find_elements(By.XPATH, './/div[contains(@class, "events")]')
-            print("GW:", gw)
-            print("Score:", score)
-            print("Bar Negative Text:", bar_negative_text)
-            datos_jugador = {}
+            #print("GW:", gw)
+            #print("Score:", score)
+            #print("Bar Negative Text:", bar_negative_text)
+            #datos_jugador = {}
 
             if "Sancionado" in bar_negative_text:
-                datos_jugador['Error'] = 'Sancionado'
-                print("Datos jornada", datos_jugador)
+                datos_jornada['SancionOLesion'] = 'Sancionado'
+                #print("Datos jornada", datos_jugador)
                 continue  # Salta al siguiente elemento en el bucle for
             elif (score == "Sin puntuación" and not bar_negatives):
-                datos_jugador['Error'] = 'No jugó la joranda'
-                print("Datos jornada", datos_jugador)
+                datos_jornada['SancionOLesion'] = 'No jugó la jornada'
+                #print("Datos jornada", datos_jugador)
                 continue  # Salta al siguiente elemento en el bucle for
             else:
                 eventos_div = element.find_elements(By.XPATH, './/div[@class="bar"]')
@@ -190,7 +236,9 @@ def obtener_datos_jugador(driver):
                     while intentos > 0:
                         try:
                             evento.click()
-                            wait.until(EC.presence_of_element_located((By.XPATH, './/div[@class="footer"]'))).click()
+                            #wait.until(EC.element_to_be_clickable((By.XPATH, './/div[@class="footer"]'))).click()
+                            button_xpath = "//button[contains(text(), 'Ver más estadísticas')]"
+                            wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath))).click()
                             tabla = wait.until(EC.presence_of_element_located((By.XPATH, './/div[contains(@class, "content player-breakdown")]')))
                             filas = tabla.find_elements(By.TAG_NAME, 'tr')
                             for fila in filas:
@@ -198,7 +246,7 @@ def obtener_datos_jugador(driver):
                                 if len(columnas) == 2:  # Asegúrate de que hay dos columnas para evitar errores
                                     campo = columnas[0].text
                                     valor = columnas[1].text
-                                    datos_jugador[campo] = valor
+                                    datos_jornada[campo] = valor
                             # Una vez que has recogido los datos, intenta cerrar el popup
                             if wait.until(EC.presence_of_element_located((By.ID, 'popup'))):
                                 driver.find_element(By.CSS_SELECTOR, '#popup .popup-close').click()
@@ -211,8 +259,9 @@ def obtener_datos_jugador(driver):
                             datos_jugador['Error'] = 'No jugó la joranda'
                             break
                     # Imprimir el número de la jornada, los puntos y los eventos
-                    print("Datos jonada", datos_jugador)
-                print("---------")
+                    #print("Datos jonada", datos_jugador)
+                #print("---------")
+            datos_jornadas.append(datos_jornada)
         # Encuentra el contenedor principal
         box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')
 
@@ -223,10 +272,16 @@ def obtener_datos_jugador(driver):
         # Recorre los elementos del historial de valores y extrae la información
         valores = []
         for item in valores_items:
+            valor = {}
             top = item.find_element(By.CLASS_NAME, 'top').text
             bottom = item.find_element(By.CLASS_NAME, 'bottom').text
             right = item.find_element(By.CLASS_NAME, 'right').text
-            valores.append((top, bottom, right))
+            valor = {
+                "top": top,
+                "bottom": bottom,
+                "right": right
+            }
+            valores.append(valor)
 
         # Encuentra el historial de puntos
         historial_puntos_container = box_container.find_element(By.XPATH, "//h4[text()='Historial de puntos']/parent::div[@class='section-title']/following-sibling::div[@class='box box-records']")
@@ -235,10 +290,16 @@ def obtener_datos_jugador(driver):
         # Recorre los elementos del historial de puntos y extrae la información
         puntos = []
         for item in puntos_items:
+            punto = {}
             top = item.find_element(By.CLASS_NAME, 'top').text
             bottom = item.find_element(By.CLASS_NAME, 'bottom').text
             right = item.find_element(By.CLASS_NAME, 'right').text
-            puntos.append((top, bottom, right))
+            punto = {
+                "top": top,
+                "bottom": bottom,
+                "right": right
+            }
+            puntos.append(punto)
 
         registros_transferencia = []
 
@@ -268,29 +329,44 @@ def obtener_datos_jugador(driver):
                 }
                 
                 registros_transferencia.append(registro)
-
-        for registro in registros_transferencia:
-            print("Fecha:", registro["fecha"])
-            print("Tipo de operación:", registro["tipo_operacion"])
-            print("Usuario origen:", registro["usuario_origen"])
-            print("Usuario destino:", registro["usuario_destino"])
-            print("Precio:", registro["precio"])
-            print()
+        #transferencias = []
+        #for registro in registros_transferencia:
+        #    #print("Fecha:", registro["fecha"])
+        #    #print("Tipo de operación:", registro["tipo_operacion"])
+        #    #print("Usuario origen:", registro["usuario_origen"])
+        #    #print("Usuario destino:", registro["usuario_destino"])
+        #    #print("Precio:", registro["precio"])
+        #    #print()
+        #    transferencias['Fecha'] = registro["fecha"]
+        #    transferencias['Tipo_Operacion'] = registro["tipo_operacion"]
+        #    transferencias['Usuario_origen'] = registro["usuario_origen"]
+        #    transferencias['Usuario_destino'] = registro["usuario_destino"]
+        #    transferencias['Precio'] = registro["precio"]
         # Imprime el historial de valores
-        print("Historial de valores:")
-        for valor in valores:
-            print("Top:", valor[0])
-            print("Bottom:", valor[1])
-            print("Right:", valor[2])
-            print()
-
-        # Imprime el historial de puntos
-        print("Historial de puntos:")
-        for punto in puntos:
-            print("Top:", punto[0])
-            print("Bottom:", punto[1])
-            print("Right:", punto[2])
-            print()
+        #print("Historial de valores:")
+        #historial_valores = {}
+        #for valor in valores:
+        #    #print("Top:", valor[0])
+        #    #print("Bottom:", valor[1])
+        #    #print("Right:", valor[2])
+        #    #print()
+        #    #historial_valores['Fecha'] = valor[0]
+        #    historial_valores['Precio'] = valor[1]
+        #    historial_valores['Total'] = valor[2]
+#
+        ## Imprime el historial de puntos
+        ##print("Historial de puntos:")
+        #historial_puntos = {}
+        #for punto in puntos:
+        #    #print("Top:", punto[0])
+        #    #print("Bottom:", punto[1])
+        #    #print("Right:", punto[2])
+        #    #print()
+        #    historial_puntos['Temporada'] = punto[0]
+        #    historial_puntos['Media'] = punto[1]
+        #    historial_puntos['Total'] = punto[2]
 
     #print(url_jugadores)
     #time.sleep(500)
+        print(datos_jugador, datos_jornadas, registros_transferencia, puntos, valores)
+    return datos_jugador, datos_jornadas, registros_transferencia, puntos, valores
