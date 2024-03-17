@@ -3,6 +3,8 @@ from obtener_clasificacion_general import obtener_clasificacion_general
 from obtener_jugadores import obtener_jugadores
 from obtener_datos_jugador import obtener_datos_jugador
 from obtener_mercado import obtener_mercado
+from obtener_clasificacion_liga import obtener_datos_liga
+from obtener_datos_jornadas_liga import obtener_datos_jornadas_liga
 from robo_jugador import robo_jugador
 from iniciar_sesion import iniciar_sesion
 from connection import connect_to_mysql
@@ -28,8 +30,14 @@ import re
 import csv
 import time
 
-nombre_usuario = "Libri"
-nombre_robo = "J. Carlos Martín"
+usuario_jugador = [
+    ("Mesichikito","F. Vieites"),
+    ("Mesichikito","T. Fuidias"),
+    ("Mesichikito","V. Guaita")
+]
+
+#nombre_usuario = "Megamister"
+#nombre_robo = "J. Oblak"
 temporada = "23/24"
 
 def main():
@@ -48,7 +56,9 @@ def main():
     #datos_mercado = obtener_mercado(driver)  # Funciona 20240227
     #print(datos_mercado)
     # insertar_datos_mercado(cnn,datos_mercado,temporada)
-    # robo_jugador(driver,nombre_usuario,nombre_robo)  # Funciona 20230724
+    #for usuario, robo in usuario_jugador:
+    #    robo_jugador(driver,usuario,robo)  # Funciona 20230724
+    #    time.sleep(2)
     #datos_jugadores = obtener_jugadores(driver)  # Funciona 20230130
     #print(datos_jugadores)
     # insertar_jugadores(cnn,datos_jugadores,temporada)
@@ -56,7 +66,8 @@ def main():
     #la función de arriba devuelve datos_jugador, datos_jornada, transferencias, historial_puntos, historial_valores
     # datos_tarjeta(driver,temporada)  # Hay que pensar como modificarlo
     # print(datos_tarjetas)
-    # print("hola")
+    #obtener_datos_liga(driver) # Funciona 20240317
+    obtener_datos_jornadas_liga(driver)  # Funciona 20240317
 
     driver.quit()
     #cnn.close()
