@@ -6,6 +6,7 @@ from collections import defaultdict
 import json
 
 def obtener_clasificacion_jornada(driver):
+    datos_por_jornada = defaultdict(list)
     datos_jornadas = []
     wait = WebDriverWait(driver, 10)
 
@@ -66,14 +67,9 @@ def obtener_clasificacion_jornada(driver):
                         "Jugadores": players_numbers,
                         "Valor_equipo": value_team
                     }
-                    datos_jornadas.append(datos_jornada)
+                    datos_por_jornada[i].append(datos_jornada)
             else:
                 print(f"No hay datos de clasificación para la Jornada {i}")
-                
-            datos_por_jornada = defaultdict(list)
-            for resultado in datos_jornadas:
-                jornada = resultado['Jornada']
-                datos_por_jornada[jornada].append(resultado)
         except (TimeoutException, StaleElementReferenceException, NoSuchWindowException) as e:
             print(f"Se ha producido un error con la Jornada {i}: {e}")
             if isinstance(e, NoSuchWindowException):

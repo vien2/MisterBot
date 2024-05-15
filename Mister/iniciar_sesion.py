@@ -1,10 +1,4 @@
-from obtener_clasificacion_jornada import obtener_clasificacion_jornada
-from obtener_clasificacion_general import obtener_clasificacion_general
-from obtener_jugadores import obtener_jugadores
-from obtener_datos_jugador import obtener_datos_jugador
-from obtener_jugadores import obtener_jugadores
-from obtener_mercado import obtener_mercado
-from robo_jugador import robo_jugador
+from Robo.robo_jugador import robo_jugador
 from selenium import webdriver
 from bs4 import BeautifulSoup
 import time

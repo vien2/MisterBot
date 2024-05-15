@@ -31,7 +31,6 @@ def obtener_clasificacion_general(driver):
   general_standings = driver.find_elements(By.XPATH, '//div[@class="panel panel-total"]//li')
 
   # Imprime los datos de la clasificación general
-  print("Clasificación General:")
   for item in general_standings:
     position = item.find_element(By.CLASS_NAME, 'position').text.strip()
     name = item.find_element(By.CLASS_NAME, 'name').text.strip()
