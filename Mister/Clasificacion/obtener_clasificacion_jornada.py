@@ -32,8 +32,9 @@ def obtener_clasificacion_jornada(driver):
                 print(f"No se pudo seleccionar la Jornada {i} dentro del tiempo esperado.")
                 break
             # Verificar si la pestaña 'Jornada' está activa y hacer clic si no lo está
-            tab_jornada = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@data-tab="gameweek"][not(contains(@class, "active"))]')))
-            if tab_jornada:
+            tab_jornada = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@data-tab="gameweek"]')))
+            # Comprobar si ya está activo; si no lo está, hacer clic
+            if "active" not in tab_jornada.get_attribute("class"):
                 tab_jornada.click()
 
             # Esperar a que los elementos de la jornada se carguen completamente
@@ -76,5 +77,4 @@ def obtener_clasificacion_jornada(driver):
                 print("La ventana del navegador se ha cerrado.")
                 break
             continue  # Continuar con la siguiente jornada
-
     return datos_por_jornada

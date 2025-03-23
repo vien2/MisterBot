@@ -3,8 +3,7 @@ import configparser
 from datetime import datetime
 from generate_hash import hash_dato
 
-
-def insertar_jugadores(temporada_actual, datos_jugadores):
+def insertar_datos_jugadores(temporada_actual, datos_jugador, datos_jornadas, registros_transferencia, puntos, valores):
     fecha_de_carga = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     config = configparser.ConfigParser()
@@ -20,9 +19,9 @@ def insertar_jugadores(temporada_actual, datos_jugadores):
 
     try:
         for coleccion_nombre in colecciones:
-            if coleccion_nombre == 'Jugadores':
+            if coleccion_nombre == 'Datos_Jugador':
                 coleccion = db[coleccion_nombre]
-                for dato in datos_jugadores:
+                for dato in datos_usuarios:
                     dato_hash = hash_dato(dato)
                     dato['F_CARGA'] = fecha_de_carga
                     dato['temporada'] = temporada_actual

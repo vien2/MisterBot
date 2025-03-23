@@ -27,4 +27,4 @@ def ver_coleccion(nombre_coleccion):
         print(f"Error al conectar a la colección {nombre_coleccion}: {e}")
 
 # Ejemplo de uso
-ver_coleccion('Clasificacion_General')
+ver_coleccion('Jugadores')

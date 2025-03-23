@@ -55,5 +55,4 @@ def obtener_mercado(driver):
         }
 
         datos_mercado.append(datos_jugador)
-    print(datos_mercado)
     return datos_mercado

@@ -1,34 +1,15 @@
-from selenium import webdriver
-from bs4 import BeautifulSoup
-import time
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait,Select
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import NoSuchElementException,StaleElementReferenceException
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
-import json, re, csv
+import re
 
 def obtener_datos_jugador(driver):
     datos_de_jugadores = []
     evento = []
     wait = WebDriverWait(driver, 2)
-    # Inicializa una lista para almacenar los eventos de gol por jornada
     eventos_gol_por_jornada = []
-    # Localizar el enlace de "Más"
-    #enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'Más')]")))
-    """
-    enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")))
-    enlace_mas.click()
-
-    driver.implicitly_wait(2)
-
-    enlace_jugadores = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Jugadores')]")))
-    enlace_jugadores.click()
-
-    #time.sleep(5000)
-    """
     enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")))
     enlace_mas.click()
 
@@ -112,15 +93,6 @@ def obtener_datos_jugador(driver):
         goles = stats_dict.get('Goles')
         tarjetas = stats_dict.get('Tarjetas')
 
-
-        # Imprimir los valores
-        #print(f"Valor: {valor}")
-        #print(f"Cláusula: {claúsula}")
-        #print(f"Puntos: {puntos}")
-        #print(f"Media: {media}")
-        #print(f"Partidos: {partidos}")
-        #print(f"Goles: {goles}")
-        #print(f"Tarjetas: {tarjetas}")
         datos_jugador['Valor'] = valor
         datos_jugador['Clausula'] = claúsula
         datos_jugador['Puntos'] = puntos
@@ -138,31 +110,64 @@ def obtener_datos_jugador(driver):
                 owner_name = owner_info.group(1)
                 owner_date = owner_info.group(2)
                 owner_price = owner_info.group(3)
-                #print(f"Propietario: {owner_name}, Fecha: {owner_date}, Precio: {owner_price}")
                 datos_jugador['Propietario'] = owner_name
                 datos_jugador['Fecha'] = owner_date
                 datos_jugador['Precio'] = owner_price
             elif re.search(r'De (.+)', owner_text):
                 owner_name = re.search(r'De (.+)', owner_text).group(1)
-                #print(f"Propietario: {owner_name}")
                 datos_jugador['Propietario'] = owner_name
             else:
                 print("Información del propietario no válida")
                 datos_jugador['Propietario'] = "Información del propietario no válida"
         
         except NoSuchElementException:
-            #print("Jugador libre")
             datos_jugador['Propietario'] = "Jugador libre"
         
         try:
             alert_status = driver.find_element(By.XPATH, '//div[@class="box alert-status"]')
             alert_text = alert_status.text
-            #print(alert_text)
             datos_jugador['Alerta'] = alert_text
         except NoSuchElementException:
-            #print("Jugador sin alertas")
             datos_jugador['Alerta'] = "Jugador sin alertas"
+    return datos_jugador
 
+def obtener_datos_jornadas(driver):
+    evento = []
+    wait = WebDriverWait(driver, 2)
+    enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")))
+    enlace_mas.click()
+
+    driver.implicitly_wait(2)
+
+    enlace_jugadores = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Jugadores')]")))
+    enlace_jugadores.click()
+    # Hacer scroll hacia abajo en la página
+    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
+    # Bucle para hacer clic en el botón "Ver más jugadores" hasta que no haya más jugadores nuevos
+    while True:
+        try:
+            # Espera hasta que el botón esté visible
+            button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Ver más')]")))
+
+            # Haz clic en el botón "Ver más jugadores"
+            button.click()
+
+            # Espera a que se carguen los nuevos jugadores
+            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located((By.XPATH, '//div[@class="player-list"]')))
+        except:
+            # Si no se encuentra el botón o no hay más jugadores nuevos, sale del bucle
+            break
+    # Recorrer la lista de jugadores
+    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
+    url_jugadores = []
+    for player in players:
+        player_link = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn.btn-sw-link.player')))
+        player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
+        url_jugadores.append(player_url)
+    for player_url in url_jugadores:
+        driver.get(player_url)
+        name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
+        surname  = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
         elements = driver.find_elements(By.XPATH, '//div[@class="line btn btn-player-gw"]')
         datos_jornadas = []
         for element in elements:
@@ -211,13 +216,6 @@ def obtener_datos_jugador(driver):
                 # Si no se encuentra ningún elemento con la clase "bar negative", asignar un valor predeterminado
                 bar_negative_text = "Sin texto de sanción o lesión"
                 datos_jornada['SancionOLesion'] = bar_negative_text
-            #EVENTOS: TARJETAS GOLES ETC
-            # Obtener el elemento <div> con la clase "events"
-            #eventos_div = element.find_elements(By.XPATH, './/div[contains(@class, "events")]')
-            #print("GW:", gw)
-            #print("Score:", score)
-            #print("Bar Negative Text:", bar_negative_text)
-            #datos_jugador = {}
 
             if "Sancionado" in bar_negative_text:
                 datos_jornada['SancionOLesion'] = 'Sancionado'
@@ -256,51 +254,47 @@ def obtener_datos_jugador(driver):
                             if intentos == 0:
                                 print("No se pudo recuperar la información del evento después de varios intentos.")
                         except Exception:
-                            datos_jugador['Error'] = 'No jugó la joranda'
+                            datos_jornada['Error'] = 'No jugó la joranda'
                             break
-                    # Imprimir el número de la jornada, los puntos y los eventos
-                    #print("Datos jonada", datos_jugador)
-                #print("---------")
             datos_jornadas.append(datos_jornada)
-        # Encuentra el contenedor principal
-        box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')
+    return datos_jornadas
 
-        # Encuentra el historial de valores
-        historial_valores_container = box_container.find_element(By.XPATH, "//h4[text()='Historial de valores']/parent::div[@class='section-title']/following-sibling::div[@class='box box-records']")
-        valores_items = historial_valores_container.find_elements(By.TAG_NAME, 'li')
+def obtener_registros_transferencia(driver):
+    wait = WebDriverWait(driver, 2)
+    enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")))
+    enlace_mas.click()
 
-        # Recorre los elementos del historial de valores y extrae la información
-        valores = []
-        for item in valores_items:
-            valor = {}
-            top = item.find_element(By.CLASS_NAME, 'top').text
-            bottom = item.find_element(By.CLASS_NAME, 'bottom').text
-            right = item.find_element(By.CLASS_NAME, 'right').text
-            valor = {
-                "top": top,
-                "bottom": bottom,
-                "right": right
-            }
-            valores.append(valor)
+    driver.implicitly_wait(2)
 
-        # Encuentra el historial de puntos
-        historial_puntos_container = box_container.find_element(By.XPATH, "//h4[text()='Historial de puntos']/parent::div[@class='section-title']/following-sibling::div[@class='box box-records']")
-        puntos_items = historial_puntos_container.find_elements(By.TAG_NAME, 'li')
+    enlace_jugadores = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Jugadores')]")))
+    enlace_jugadores.click()
+    # Hacer scroll hacia abajo en la página
+    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
+    # Bucle para hacer clic en el botón "Ver más jugadores" hasta que no haya más jugadores nuevos
+    while True:
+        try:
+            # Espera hasta que el botón esté visible
+            button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Ver más')]")))
 
-        # Recorre los elementos del historial de puntos y extrae la información
-        puntos = []
-        for item in puntos_items:
-            punto = {}
-            top = item.find_element(By.CLASS_NAME, 'top').text
-            bottom = item.find_element(By.CLASS_NAME, 'bottom').text
-            right = item.find_element(By.CLASS_NAME, 'right').text
-            punto = {
-                "top": top,
-                "bottom": bottom,
-                "right": right
-            }
-            puntos.append(punto)
+            # Haz clic en el botón "Ver más jugadores"
+            button.click()
 
+            # Espera a que se carguen los nuevos jugadores
+            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located((By.XPATH, '//div[@class="player-list"]')))
+        except:
+            # Si no se encuentra el botón o no hay más jugadores nuevos, sale del bucle
+            break
+    # Recorrer la lista de jugadores
+    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
+    url_jugadores = []
+    for player in players:
+        player_link = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn.btn-sw-link.player')))
+        player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
+        url_jugadores.append(player_url)
+    for player_url in url_jugadores:
+        driver.get(player_url)
+        name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
+        surname  = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
         registros_transferencia = []
 
         box_records_div = driver.find_element(By.XPATH, '//div[@class="box box-records"]')
@@ -321,6 +315,8 @@ def obtener_datos_jugador(driver):
                 precio = li.find_element(By.XPATH, ".//div[@class='right']").text
                 
                 registro = {
+                    "Nombre": name,
+                    "Apellido": surname,
                     "fecha": fecha,
                     "tipo_operacion": tipo_operacion,
                     "usuario_origen": usuario_origen,
@@ -329,44 +325,123 @@ def obtener_datos_jugador(driver):
                 }
                 
                 registros_transferencia.append(registro)
-        #transferencias = []
-        #for registro in registros_transferencia:
-        #    #print("Fecha:", registro["fecha"])
-        #    #print("Tipo de operación:", registro["tipo_operacion"])
-        #    #print("Usuario origen:", registro["usuario_origen"])
-        #    #print("Usuario destino:", registro["usuario_destino"])
-        #    #print("Precio:", registro["precio"])
-        #    #print()
-        #    transferencias['Fecha'] = registro["fecha"]
-        #    transferencias['Tipo_Operacion'] = registro["tipo_operacion"]
-        #    transferencias['Usuario_origen'] = registro["usuario_origen"]
-        #    transferencias['Usuario_destino'] = registro["usuario_destino"]
-        #    transferencias['Precio'] = registro["precio"]
-        # Imprime el historial de valores
-        #print("Historial de valores:")
-        #historial_valores = {}
-        #for valor in valores:
-        #    #print("Top:", valor[0])
-        #    #print("Bottom:", valor[1])
-        #    #print("Right:", valor[2])
-        #    #print()
-        #    #historial_valores['Fecha'] = valor[0]
-        #    historial_valores['Precio'] = valor[1]
-        #    historial_valores['Total'] = valor[2]
-#
-        ## Imprime el historial de puntos
-        ##print("Historial de puntos:")
-        #historial_puntos = {}
-        #for punto in puntos:
-        #    #print("Top:", punto[0])
-        #    #print("Bottom:", punto[1])
-        #    #print("Right:", punto[2])
-        #    #print()
-        #    historial_puntos['Temporada'] = punto[0]
-        #    historial_puntos['Media'] = punto[1]
-        #    historial_puntos['Total'] = punto[2]
+    return registros_transferencia
 
-    #print(url_jugadores)
-    #time.sleep(500)
-        print(datos_jugador, datos_jornadas, registros_transferencia, puntos, valores)
-    return datos_jugador, datos_jornadas, registros_transferencia, puntos, valores
+def obtener_puntos(driver):
+    wait = WebDriverWait(driver, 2)
+    enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")))
+    enlace_mas.click()
+
+    driver.implicitly_wait(2)
+
+    enlace_jugadores = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Jugadores')]")))
+    enlace_jugadores.click()
+    # Hacer scroll hacia abajo en la página
+    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
+    # Bucle para hacer clic en el botón "Ver más jugadores" hasta que no haya más jugadores nuevos
+    while True:
+        try:
+            # Espera hasta que el botón esté visible
+            button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Ver más')]")))
+
+            # Haz clic en el botón "Ver más jugadores"
+            button.click()
+
+            # Espera a que se carguen los nuevos jugadores
+            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located((By.XPATH, '//div[@class="player-list"]')))
+        except:
+            # Si no se encuentra el botón o no hay más jugadores nuevos, sale del bucle
+            break
+    # Recorrer la lista de jugadores
+    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
+    url_jugadores = []
+    for player in players:
+        player_link = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn.btn-sw-link.player')))
+        player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
+        url_jugadores.append(player_url)
+    for player_url in url_jugadores:
+        driver.get(player_url)
+        name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
+        surname  = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+        # Encuentra el contenedor principal
+        box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')
+        # Encuentra el historial de puntos
+        historial_puntos_container = box_container.find_element(By.XPATH, "//h4[text()='Historial de puntos']/parent::div[@class='section-title']/following-sibling::div[@class='box box-records']")
+        puntos_items = historial_puntos_container.find_elements(By.TAG_NAME, 'li')
+
+        # Recorre los elementos del historial de puntos y extrae la información
+        puntos = []
+        for item in puntos_items:
+            punto = {}
+            top = item.find_element(By.CLASS_NAME, 'top').text
+            bottom = item.find_element(By.CLASS_NAME, 'bottom').text
+            right = item.find_element(By.CLASS_NAME, 'right').text
+            punto = {
+                "Nombre": name,
+                "Apellido": surname,
+                "top": top,
+                "bottom": bottom,
+                "right": right
+            }
+            puntos.append(punto)
+    return puntos
+
+def obtener_valores(driver):
+    wait = WebDriverWait(driver, 2)
+    enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")))
+    enlace_mas.click()
+
+    driver.implicitly_wait(2)
+
+    enlace_jugadores = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Jugadores')]")))
+    enlace_jugadores.click()
+    # Hacer scroll hacia abajo en la página
+    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
+    # Bucle para hacer clic en el botón "Ver más jugadores" hasta que no haya más jugadores nuevos
+    while True:
+        try:
+            # Espera hasta que el botón esté visible
+            button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Ver más')]")))
+
+            # Haz clic en el botón "Ver más jugadores"
+            button.click()
+
+            # Espera a que se carguen los nuevos jugadores
+            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located((By.XPATH, '//div[@class="player-list"]')))
+        except:
+            # Si no se encuentra el botón o no hay más jugadores nuevos, sale del bucle
+            break
+    # Recorrer la lista de jugadores
+    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
+    url_jugadores = []
+    for player in players:
+        player_link = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, 'btn.btn-sw-link.player')))
+        player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
+        url_jugadores.append(player_url)
+    for player_url in url_jugadores:
+        driver.get(player_url)
+        name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
+        surname  = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+        # Encuentra el contenedor principal
+        box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')
+
+        # Encuentra el historial de valores
+        historial_valores_container = box_container.find_element(By.XPATH, "//h4[text()='Historial de valores']/parent::div[@class='section-title']/following-sibling::div[@class='box box-records']")
+        valores_items = historial_valores_container.find_elements(By.TAG_NAME, 'li')
+
+        # Recorre los elementos del historial de valores y extrae la información
+        valores = []
+        for item in valores_items:
+            valor = {}
+            top = item.find_element(By.CLASS_NAME, 'top').text
+            bottom = item.find_element(By.CLASS_NAME, 'bottom').text
+            right = item.find_element(By.CLASS_NAME, 'right').text
+            valor = {
+                "Nombre": name,
+                "Apellido": surname,
+                "top": top,
+                "bottom": bottom,
+                "right": right
+            }
+            valores.append(valor)
+    return valores
