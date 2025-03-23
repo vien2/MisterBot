@@ -1,0 +1,5 @@
+# .gitignore
+config.ini
+__pycache__/
+data/
+#data/csv/clasificacion_jornadas_20250323.csv

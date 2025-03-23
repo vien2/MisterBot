@@ -59,8 +59,8 @@ def robo_jugador(driver,nombre_usuario,nombre_robo):
                 print("No se encontraron elementos 'li' en 'item_robo'")
                 break
 
-
     if encontrado:
-        print(f"{nombre_usuario} ha robado al jugador {nombre_robo}.")
+        print(f"{nombre_usuario} ha perdido al jugador {nombre_robo}.")
     else:
         print(f"{nombre_usuario} no tiene al jugador {nombre_robo}.")
+    return print("Robo completado")
