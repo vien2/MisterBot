@@ -1,8 +1,7 @@
-from selenium import webdriver
 import time
 from selenium.webdriver.common.by import By
 
-def datos_tarjeta(driver,temporada):
+def datos_tarjeta(driver):
 
     # Tiempo de espera para cargar contenido adicional (ajusta según la velocidad de carga de la página)
     time.sleep(2)
@@ -33,7 +32,6 @@ def datos_tarjeta(driver,temporada):
 
     # Obtén los elementos que representan cada tarjeta
     tarjetas = driver.find_elements(By.XPATH, '//div[@class="card card-player_transfer"]')
-    print(tarjetas)
     # Crea una lista para guardar los datos de cada tarjeta
     datos_tarjetas = []
     # Itera a través de los elementos y extrae la información deseada
@@ -51,5 +49,4 @@ def datos_tarjeta(driver,temporada):
             "evento": evento
             }
             datos_tarjetas.append(datos_tarjeta)
-            print(datos_tarjeta)
     return datos_tarjetas

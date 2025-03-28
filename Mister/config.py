@@ -4,8 +4,16 @@ from datetime import datetime
 # Diccionario base para los tipos de CSV que vas a generar
 BASE_FILENAME_CONFIG = {
     "jornadas": {"nombre": "clasificacion_jornadas"},
-    "usuarios": {"nombre": "clasificacion_usuarios"},
-    "mercado": {"nombre": "datos_mercado"}
+    "usuarios": {"nombre": "clasificacion_general"},
+    "mercado": {"nombre": "mercado"},
+    "datos_jugador": {"nombre": "datos_jugador"},
+    "datos_jornadas": {"nombre": "datos_jornadas"},
+    "datos_transferencia": {"nombre": "datos_transferencia"},
+    "datos_puntos" : {"nombre": "datos_puntos"},
+    "datos_valores" : {"nombre": "datos_valores"},
+    "datos_tarjetas" : {"nombre": "datos_tarjetas"},
+    "datos_liga" : {"nombre": "datos_liga"},
+    "datos_jornadas_liga" : {"nombre": "datos_jornadas_liga"}
 }
 
 def get_filename_config(tipo, fecha=None):

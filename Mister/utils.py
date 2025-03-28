@@ -16,11 +16,21 @@ def generar_nombre_archivo(config):
         partes.append(config["fecha"])
     return "_".join(partes) + ".csv"
 
-def aplanar_datos(diccionario):
-    datos = []
-    for registros in diccionario.values():
-        datos.extend(registros)
-    return datos
+def aplanar_datos(datos):
+    """
+    Si 'datos' es un diccionario, lo aplana a una lista.
+    Si ya es una lista, lo devuelve tal cual.
+    """
+    if isinstance(datos, dict):
+        resultado = []
+        for registros in datos.values():
+            resultado.extend(registros)
+        return resultado
+    elif isinstance(datos, list):
+        return datos
+    else:
+        raise TypeError("Se esperaba un dict o una lista")
+
 
 def obtener_temporada_actual():
     hoy = datetime.now()
@@ -33,13 +43,20 @@ def obtener_temporada_actual():
         fin = hoy.year % 100
     return f"{inicio:02d}/{fin:02d}"
 
-def añadir_temporada(datos_por_jornada):
+def añadir_temporada(datos):
     temporada = obtener_temporada_actual()
-    # datos_por_jornada es un diccionario, donde cada valor es una lista de registros
-    for jornada, registros in datos_por_jornada.items():
-        for registro in registros:
+    if isinstance(datos, dict):
+        # Si es un diccionario, se asume que cada valor es una lista de registros
+        for key, registros in datos.items():
+            for registro in registros:
+                registro["Temporada"] = temporada
+    elif isinstance(datos, list):
+        # Si es una lista, cada elemento es un registro
+        for registro in datos:
             registro["Temporada"] = temporada
-    return datos_por_jornada
+    else:
+        raise TypeError("El formato de datos no es soportado (se esperaba dict o list)")
+    return datos
 
 def guardar_en_csv(datos_list, base_path, filename_config, fieldnames=None):
     """
@@ -67,3 +84,21 @@ def guardar_en_csv(datos_list, base_path, filename_config, fieldnames=None):
             writer.writerow(row)
 
     print(f"Archivo CSV guardado correctamente en: {ruta_completa}")
+
+def log(message):
+    # Obtener el momento actual
+    now = datetime.now()
+    # Formatear el timestamp: año-mes-dia hora:minutos:segundos.milisegundos
+    log_time = now.strftime("%Y-%m-%d %H:%M:%S") + f".{now.microsecond//1000:03d}"
+    # Crear la línea de log
+    log_line = f"{log_time} - {message}\n"
+    
+    # Asegurarse de que el directorio de log existe
+    os.makedirs("log", exist_ok=True)
+    
+    # Construir el nombre del fichero usando el formato añomesdia (por ejemplo: log_20250328.txt)
+    file_name = f"log/log_{now.strftime('%Y%m%d')}.txt"
+    
+    # Abrir el fichero en modo "append" para no sobreescribir los logs del mismo día
+    with open(file_name, "a", encoding="utf-8") as f:
+        f.write(log_line)
