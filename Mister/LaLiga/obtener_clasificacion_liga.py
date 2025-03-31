@@ -67,4 +67,3 @@ def obtener_datos_liga(driver):
     except Exception as e:
         log(f"obtener_datos_liga: Error inesperado: {e}")
         return None
-

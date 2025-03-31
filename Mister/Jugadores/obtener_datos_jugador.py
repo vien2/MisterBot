@@ -6,6 +6,70 @@ from selenium.webdriver.common.keys import Keys
 import re
 from utils import log
 
+def obtener_urls_jugadores(driver):
+    log("obtener_urls_jugadores: Inicio")
+
+    wait = WebDriverWait(driver, 2)
+    datos_urls = []
+
+    try:
+        enlace_mas = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")
+        ))
+        enlace_mas.click()
+        log("obtener_urls_jugadores: Enlace 'Más' clickeado")
+    except Exception as e:
+        log(f"obtener_urls_jugadores: Error al hacer clic en 'Más': {e}")
+        return []
+
+    driver.implicitly_wait(2)
+
+    try:
+        enlace_jugadores = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//button[contains(text(), 'Jugadores')]")
+        ))
+        enlace_jugadores.click()
+        log("obtener_urls_jugadores: Enlace 'Jugadores' clickeado")
+    except Exception as e:
+        log(f"obtener_urls_jugadores: Error al hacer clic en 'Jugadores': {e}")
+        return []
+
+    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
+
+    while True:
+        try:
+            button = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, "//button[contains(text(), 'Ver más')]")
+            ))
+            button.click()
+            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located(
+                (By.XPATH, '//div[@class="player-list"]')
+            ))
+            log("obtener_urls_jugadores: Botón 'Ver más' clickeado")
+        except:
+            break
+
+    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
+
+    for player in players:
+        try:
+            url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
+            match = re.search(r'/players/(\d+)/([\w\-\d]+)', url)
+            if match:
+                id_jugador = match.group(1)
+                nombre_apellido = match.group(2).replace("-", " ").title()
+                datos_urls.append({
+                    "id_jugador": id_jugador,
+                    "nombre_apellido": nombre_apellido,
+                    "url": url
+                })
+        except Exception as e:
+            log(f"obtener_urls_jugadores: Error procesando jugador: {e}")
+            continue
+
+    log(f"obtener_urls_jugadores: Total URLs formateadas: {len(datos_urls)}")
+    return datos_urls
+
 def obtener_datos_jugador(driver):
     log("obtener_datos_jugador: Inicio de la función")
 

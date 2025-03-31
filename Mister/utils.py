@@ -1,6 +1,41 @@
 import os
 import csv
 from datetime import datetime
+from configparser import ConfigParser
+from contextlib import contextmanager
+import psycopg2
+import hashlib
+import json
+
+def añadir_hash(lista_dicts):
+    """
+    Añade un campo 'hash' a cada diccionario de la lista, generado con json.dumps ordenado.
+    """
+    log("añadir_hash: Iniciamos a añadir hash")
+    if not isinstance(lista_dicts, list):
+        raise TypeError("Se esperaba una lista de diccionarios")
+
+    for item in lista_dicts:
+        if not isinstance(item, dict):
+            raise TypeError("Cada elemento debe ser un diccionario")
+
+        # Serialización ordenada y estable
+        item_serializado = json.dumps(item, sort_keys=True, ensure_ascii=False)
+        item["hash"] = hashlib.sha256(item_serializado.encode("utf-8")).hexdigest()
+
+    log("añadir_hash: hash añadido")
+    return lista_dicts
+
+def añadir_f_carga(lista_registros):
+    log(f"añadir_f_carga: Iniciamos a añadir f_carga")
+    f_carga_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    if isinstance(lista_registros, list):
+        for registro in lista_registros:
+            if isinstance(registro, dict):
+                registro["f_carga"] = f_carga_actual
+    log(f"añadir_f_carga: f_carga añadida")
+    return lista_registros
 
 def generar_nombre_archivo(config):
     """
@@ -44,6 +79,7 @@ def obtener_temporada_actual():
     return f"{inicio:02d}/{fin:02d}"
 
 def añadir_temporada(datos):
+    log(f"añadir_temporada: Iniciamos a añadir la temporada")
     temporada = obtener_temporada_actual()
     if isinstance(datos, dict):
         # Si es un diccionario, se asume que cada valor es una lista de registros
@@ -56,6 +92,7 @@ def añadir_temporada(datos):
             registro["Temporada"] = temporada
     else:
         raise TypeError("El formato de datos no es soportado (se esperaba dict o list)")
+    log(f"añadir_temporada: temporada añadida")
     return datos
 
 def guardar_en_csv(datos_list, base_path, filename_config, fieldnames=None):
@@ -83,7 +120,7 @@ def guardar_en_csv(datos_list, base_path, filename_config, fieldnames=None):
         for row in datos_list:
             writer.writerow(row)
 
-    print(f"Archivo CSV guardado correctamente en: {ruta_completa}")
+    log(f"Archivo CSV guardado correctamente en: {ruta_completa}")
 
 def log(message):
     # Obtener el momento actual
@@ -102,3 +139,35 @@ def log(message):
     # Abrir el fichero en modo "append" para no sobreescribir los logs del mismo día
     with open(file_name, "a", encoding="utf-8") as f:
         f.write(log_line)
+
+def leer_config_db(archivo='Mister/config.ini', seccion='postgresql'):
+    """Lee la configuración de la base de datos desde config.ini"""
+    log(f"leer_config_db: Buscando config.ini en {os.path.abspath(archivo)}")
+    parser = ConfigParser()
+    parser.read(archivo)
+    log(f"conexion_db: Archivos leídos: {parser.read(archivo)}")
+
+    if parser.has_section(seccion):
+        return {param[0]: param[1] for param in parser.items(seccion)}
+    else:
+        raise Exception(f'Sección {seccion} no encontrada en el archivo {archivo}')
+
+@contextmanager
+def conexion_db():
+    """Context manager para conexión segura y limpia a PostgreSQL"""
+    conn = None
+    try:
+        config = leer_config_db()
+        conn = psycopg2.connect(**config)
+        log("conexion_db: Conexión establecida correctamente")
+        yield conn
+    except Exception as e:
+        import traceback
+        error_type = type(e).__name__
+        log(f"conexion_db: Error durante la conexión - {error_type}: {e}")
+        raise
+    finally:
+        if conn:
+            conn.close()
+            log("conexion_db: Conexión cerrada correctamente")
+
