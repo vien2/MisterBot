@@ -51,20 +51,35 @@ def generar_nombre_archivo(config):
         partes.append(config["fecha"])
     return "_".join(partes) + ".csv"
 
-def aplanar_datos(datos):
+def aplanar_datos(data):
     """
-    Si 'datos' es un diccionario, lo aplana a una lista.
-    Si ya es una lista, lo devuelve tal cual.
+    Aplana estructuras comunes de datos en una lista de diccionarios.
+    - Si recibe una lista de dicts, la devuelve tal cual.
+    - Si recibe un dict con listas de dicts como valores, las concatena.
+    - Si recibe un solo dict, lo mete en una lista.
     """
-    if isinstance(datos, dict):
-        resultado = []
-        for registros in datos.values():
-            resultado.extend(registros)
-        return resultado
-    elif isinstance(datos, list):
-        return datos
-    else:
-        raise TypeError("Se esperaba un dict o una lista")
+    if isinstance(data, list):
+        if all(isinstance(item, dict) for item in data):
+            return data
+        else:
+            raise TypeError("La lista debe contener solo diccionarios")
+
+    elif isinstance(data, dict):
+        if all(isinstance(v, list) for v in data.values()):
+            # Caso tipo: {1: [dict, dict], 2: [dict, dict]}
+            resultado = []
+            for lista in data.values():
+                if all(isinstance(item, dict) for item in lista):
+                    resultado.extend(lista)
+                else:
+                    raise TypeError("Las listas dentro del dict deben contener solo diccionarios")
+            return resultado
+
+        elif all(isinstance(v, (str, int, float)) for v in data.values()):
+            # Caso tipo: {"a": 1, "b": 2}
+            return [data]
+
+    raise TypeError("Se esperaba una lista de diccionarios o un dict con listas de diccionarios")
 
 
 def obtener_temporada_actual():
@@ -134,13 +149,13 @@ def log(message):
     os.makedirs("log", exist_ok=True)
     
     # Construir el nombre del fichero usando el formato añomesdia (por ejemplo: log_20250328.txt)
-    file_name = f"log/log_{now.strftime('%Y%m%d')}.txt"
+    file_name = f"./log/log_{now.strftime('%Y%m%d')}.txt"
     
     # Abrir el fichero en modo "append" para no sobreescribir los logs del mismo día
     with open(file_name, "a", encoding="utf-8") as f:
         f.write(log_line)
 
-def leer_config_db(archivo='Mister/config.ini', seccion='postgresql'):
+def leer_config_db(archivo='config.ini', seccion='postgresql'):
     """Lee la configuración de la base de datos desde config.ini"""
     log(f"leer_config_db: Buscando config.ini en {os.path.abspath(archivo)}")
     parser = ConfigParser()
@@ -171,3 +186,7 @@ def conexion_db():
             conn.close()
             log("conexion_db: Conexión cerrada correctamente")
 
+def get_base_path_from_ini(archivo='config.ini', seccion='paths', clave='base_csv'):
+    config = ConfigParser()
+    config.read("config.ini")
+    return config.get("paths", "base_csv", fallback="./data/csv")

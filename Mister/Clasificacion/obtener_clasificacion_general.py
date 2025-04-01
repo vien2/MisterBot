@@ -11,7 +11,9 @@ def obtener_clasificacion_general(driver):
     wait = WebDriverWait(driver, 2)
 
     try:
-        enlace_tabla = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Tabla')]/parent::li/a")))
+        enlace_tabla = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Tabla')]/parent::li/a")
+        ))
         enlace_tabla.click()
         log("obtener_clasificacion_general: Enlace 'Tabla' clickeado")
     except Exception as e:
@@ -35,40 +37,28 @@ def obtener_clasificacion_general(driver):
         try:
             position = item.find_element(By.CLASS_NAME, 'position').text.strip()
             name = item.find_element(By.CLASS_NAME, 'name').text.strip()
-            points = item.find_element(By.CLASS_NAME, 'points').text.strip()
 
-            cadena_puntos = points.split("+")
-            puntos = cadena_puntos[0].strip() if len(cadena_puntos) >= 1 else "0"
-            match_puntos = re.search(r'\d+', puntos)
-            if match_puntos:
-                puntos = match_puntos.group()
-            if "-" in points:
-                cadena_puntos_negativos = points.split("-")
-                puntos = cadena_puntos_negativos[0].strip() if len(cadena_puntos_negativos) >= 1 else "0"
-                match_puntos = re.search(r'\d+', puntos)
-                if match_puntos:
-                    puntos = match_puntos.group()
+            # Extraer puntos (el div que tiene el número directamente, sin span ni diff)
+            points_element = item.find_element(By.CLASS_NAME, 'points')
+            points_text = points_element.get_attribute("textContent").strip()
+            puntos_match = re.search(r"\d[\d.]*", points_text)
+            puntos = puntos_match.group(0).replace(".", "") if puntos_match else "0"
 
-            jugadores_elements = item.find_elements(By.CLASS_NAME, 'played')
-            cadena_jugadores = jugadores_elements[0].text.strip() if len(jugadores_elements) > 0 else "0"
-
-            partes_jugadores = cadena_jugadores.split("·")
-            parte_jugadores = partes_jugadores[0].strip() if len(partes_jugadores) >= 1 else "0"
-            match_jugadores = re.search(r'\d+', parte_jugadores)
-            if match_jugadores:
-                parte_jugadores = match_jugadores.group()
-            parte_valor = partes_jugadores[1].strip() if len(partes_jugadores) >= 2 else "0"
+            # Extraer jugado y valor
+            played_text = item.find_element(By.CLASS_NAME, 'played').text.strip()
+            partes = [x.strip() for x in played_text.split("·")]
+            jugadores = re.search(r"\d+", partes[0]).group() if partes else "0"
+            valor_total = partes[1].replace(".", "") if len(partes) > 1 else "0"
 
             datos_usuario = {
-                "Usuario": name,
-                "Posicion": position,
-                "Puntos": puntos,
-                "Jugadores": parte_jugadores,
-                "Valor total": parte_valor
+                "usuario": name,
+                "posicion": position,
+                "puntos": puntos,
+                "ugadores": jugadores,
+                "valor_total": valor_total
             }
 
             datos_usuarios.append(datos_usuario)
-            #log(f"obtener_clasificacion_general: Usuario procesado - {datos_usuario}")
         except Exception as e:
             log(f"obtener_clasificacion_general: Error procesando un elemento de la clasificación: {e}")
 
