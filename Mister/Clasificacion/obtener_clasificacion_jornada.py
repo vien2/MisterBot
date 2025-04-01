@@ -68,12 +68,12 @@ def obtener_clasificacion_jornada(driver):
                         value_team = int(numeric_value)
 
                         datos_jornada = {
-                            "Jornada": str(i),
-                            "Nombre": name,
-                            "Posicion": position,
-                            "Puntos": points,
-                            "Jugadores": players_numbers,
-                            "Valor_equipo": value_team
+                            "jornada": str(i),
+                            "nombre": name,
+                            "posicion": position,
+                            "puntos": points,
+                            "jugadores": players_numbers,
+                            "valor_equipo": value_team
                         }
 
                         datos_por_jornada[i].append(datos_jornada)
@@ -88,4 +88,7 @@ def obtener_clasificacion_jornada(driver):
             continue
 
     log("obtener_clasificacion_jornada: Finalización de la función")
-    return datos_por_jornada
+    for jornada_data in datos_por_jornada.values():
+        datos_jornadas.extend(jornada_data)
+
+    return datos_jornadas
