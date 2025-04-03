@@ -7,6 +7,7 @@ from utils import (
 from configuracion import get_filename_config, get_funciones_disponibles
 from patterns.csv_postgresql import cargar_csv_postgresql
 from iniciar_sesion import iniciar_sesion
+import pandas as pd
 
 def ejecutar_proceso(id_load):
     log(f"Inicio de proceso para ID Load: {id_load}")
@@ -39,9 +40,12 @@ def ejecutar_proceso(id_load):
     # Ejecutar función y procesar datos
     datos = funcion(driver)
     datos = añadir_temporada(datos)
-    datos = añadir_f_carga(datos)
     if usa_hash:
-        datos = añadir_hash(datos)
+        df = pd.DataFrame(datos)
+        df = añadir_hash(df, schema=schema, tabla=tabla)
+        datos = df.to_dict(orient="records")  # opcional: vuelve a lista si lo necesitas
+    datos = añadir_f_carga(datos)
+    clave_conflicto = list(clave_conflicto) if clave_conflicto else None
 
     filename_config = get_filename_config(nombre_fichero)
     ruta_csv = os.path.join(base_path, filename_config["archivo"])
