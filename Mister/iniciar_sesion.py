@@ -72,6 +72,8 @@ def iniciar_sesion():
     boton_siguiente_7 = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), ' Continuar')]")))
     boton_siguiente_7.click()
     log("iniciar_sesion: Botón 'Continuar' (contraseña) clickeado")
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "menu")))
+    log("Sesión estabilizada correctamente")
     
     log("iniciar_sesion: Finalización exitosa de la función, retornando driver")
     return driver

@@ -1,10 +1,22 @@
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException,StaleElementReferenceException
+from selenium.common.exceptions import NoSuchElementException,StaleElementReferenceException,TimeoutException
 from selenium.webdriver.common.keys import Keys
 import re
-from utils import log
+from utils import log,obtener_urls_desde_db
+import unicodedata
+from iniciar_sesion import iniciar_sesion
+
+def normalizar_label(texto):
+    return unicodedata.normalize('NFKD', texto).encode('ascii', 'ignore').decode('utf-8').lower().strip()
+
+def sesion_activa(driver):
+    try:
+        driver.find_element(By.XPATH, '//a[contains(@class, "btn-play") and contains(text(), "Jugar")]')
+        return False  # botón "Jugar" = no logueado
+    except NoSuchElementException:
+        return True
 
 def obtener_urls_jugadores(driver):
     log("obtener_urls_jugadores: Inicio")
@@ -72,92 +84,36 @@ def obtener_urls_jugadores(driver):
 
 def obtener_datos_jugador(driver):
     log("obtener_datos_jugador: Inicio de la función")
-
     datos_de_jugadores = []
-    wait = WebDriverWait(driver, 2)
+    urls_jugadores = obtener_urls_desde_db()
 
-    try:
-        enlace_mas = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")
-        ))
-        enlace_mas.click()
-        log("obtener_datos_jugador: Enlace 'Más' clickeado")
-    except Exception as e:
-        log(f"obtener_datos_jugador: Error al hacer clic en 'Más': {e}")
-        return datos_de_jugadores
-
-    driver.implicitly_wait(2)
-
-    try:
-        enlace_jugadores = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(text(), 'Jugadores')]")
-        ))
-        enlace_jugadores.click()
-        log("obtener_datos_jugador: Enlace 'Jugadores' clickeado")
-    except Exception as e:
-        log(f"obtener_datos_jugador: Error al hacer clic en 'Jugadores': {e}")
-        return datos_de_jugadores
-
-    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
-
-    while True:
-        try:
-            button = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//button[contains(text(), 'Ver más')]")
-            ))
-            button.click()
-            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located(
-                (By.XPATH, '//div[@class="player-list"]')
-            ))
-            log("obtener_datos_jugador: Botón 'Ver más' clickeado, cargando más jugadores")
-        except:
-            break
-
-    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
-    url_jugadores = []
-
-    for player in players:
-        try:
-            player_link = wait.until(EC.element_to_be_clickable(
-                (By.CLASS_NAME, 'btn.btn-sw-link.player')
-            ))
-            player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
-            url_jugadores.append(player_url)
-        except Exception as e:
-            log(f"obtener_datos_jugador: Error obteniendo URL de un jugador: {e}")
-            continue
-
-    log(f"obtener_datos_jugador: {len(url_jugadores)} URLs de jugadores recolectadas")
-
-    for player_url in url_jugadores:
+    for player_url in urls_jugadores:
         datos_jugador = {}
         driver.get(player_url)
-        #log(f"obtener_datos_jugador: Accediendo a perfil {player_url}")
+        log(f"Accediendo a perfil: {player_url}")
+
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
             surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
         except Exception as e:
-            log(f"obtener_datos_jugador: Error obteniendo nombre o apellido: {e}")
+            log(f"Error obteniendo nombre o apellido: {e}")
             continue
 
         try:
             position_element = driver.find_element(By.XPATH, '//div[@class="team-position"]/i[contains(@class, "pos-")]')
             position_class = position_element.get_attribute('class')
             position_number = re.search(r'pos-(\d+)', position_class).group(1)
-            position_mapping = {
-                '1': 'PT',
-                '2': 'DF',
-                '3': 'MC',
-                '4': 'DL'
-            }
+            position_mapping = {'1': 'PT', '2': 'DF', '3': 'MC', '4': 'DL'}
             position = position_mapping.get(position_number, 'Desconocida')
         except Exception as e:
-            log(f"obtener_datos_jugador: Error obteniendo posición: {e}")
+            log(f"Error obteniendo posición: {e}")
             position = 'Desconocida'
 
         datos_jugador['Nombre'] = name
         datos_jugador['Apellido'] = surname
         datos_jugador['Posicion'] = position
+        player_id = player_url.split("/players/")[1].split("/")[0]
+        datos_jugador['id_jugador'] = player_id
 
         try:
             stats_wrapper = driver.find_element(By.CLASS_NAME, 'player-stats-wrapper')
@@ -169,42 +125,61 @@ def obtener_datos_jugador(driver):
                 stats_dict[label] = value
 
             datos_jugador['Valor'] = stats_dict.get('Valor')
-            datos_jugador['Clausula'] = stats_dict.get('Cláusula', 'Sin cláusula')
+            datos_jugador['Clausula'] = stats_dict.get('Cláusula', '')
             datos_jugador['Puntos'] = stats_dict.get('Puntos')
             datos_jugador['Media'] = stats_dict.get('Media')
             datos_jugador['Partidos'] = stats_dict.get('Partidos')
             datos_jugador['Goles'] = stats_dict.get('Goles')
             datos_jugador['Tarjetas'] = stats_dict.get('Tarjetas')
         except Exception as e:
-            log(f"obtener_datos_jugador: Error obteniendo estadísticas de {name}: {e}")
+            log(f"Error obteniendo estadísticas de {name}: {e}")
 
         try:
-            owner_element = driver.find_element(By.XPATH, '//div[@class="box box-owner"]')
-            owner_text = owner_element.text
-            owner_info = re.search(r'De (.+), fichado el (\d+ \w+ \d{4}) por (.+)', owner_text)
-            if owner_info:
-                datos_jugador['Propietario'] = owner_info.group(1)
-                datos_jugador['Fecha'] = owner_info.group(2)
-                datos_jugador['Precio'] = owner_info.group(3)
-            elif re.search(r'De (.+)', owner_text):
-                datos_jugador['Propietario'] = re.search(r'De (.+)', owner_text).group(1)
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.CLASS_NAME, "box"))
+            )
+            boxes = driver.find_elements(By.CLASS_NAME, "box")
+            box_owner = next((box for box in boxes if "De " in box.text), None)
+
+            if not box_owner:
+                raise Exception("No se encontró texto que comience por 'De ' en los box")
+
+            owner_text = " ".join(box_owner.text.strip().split())
+            match = re.search(r'De (.+?), fichado el (\d{1,2} \w+ \d{4}) por ([\d\.,]+)', owner_text)
+            if match:
+                datos_jugador['Propietario'] = match.group(1)
+                datos_jugador['Fecha'] = match.group(2)
+                datos_jugador['Precio'] = match.group(3)
             else:
-                datos_jugador['Propietario'] = "Información del propietario no válida"
-        except NoSuchElementException:
+                solo_owner = re.search(r'De (.+)', owner_text)
+                datos_jugador['Propietario'] = solo_owner.group(1).strip() if solo_owner else "Jugador libre"
+                datos_jugador['Fecha'] = ""
+                datos_jugador['Precio'] = ""
+
+        except Exception as e:
+            log(f"Error extrayendo propietario: {e}")
             datos_jugador['Propietario'] = "Jugador libre"
+            datos_jugador['Fecha'] = ""
+            datos_jugador['Precio'] = ""
 
         try:
-            alert_status = driver.find_element(By.XPATH, '//div[@class="box alert-status"]')
-            raw_alert_text = alert_status.text
-            alert_text = " ".join(raw_alert_text.split())
-            datos_jugador['Alerta'] = alert_text
-        except NoSuchElementException:
+            alert_boxes = driver.find_elements(By.XPATH, '//div[@class="box alert-status"]')
+            if not alert_boxes:
+                datos_jugador['Alerta'] = "Jugador sin alertas"
+            else:
+                alertas = []
+                for alert in alert_boxes:
+                    texto = " ".join(alert.text.strip().split())
+                    alertas.append(texto)
+                datos_jugador['Alerta'] = " | ".join(alertas)
+        except Exception as e:
+            log(f"Error extrayendo alertas: {e}")
             datos_jugador['Alerta'] = "Jugador sin alertas"
 
         datos_de_jugadores.append(datos_jugador)
-        log(f"obtener_datos_jugador: Datos añadidos para {name} {surname}")
+        log(f"Jugador procesado: {datos_jugador}")
 
-    log(f"obtener_datos_jugador: Finalización de la función con {len(datos_de_jugadores)} jugadores procesados")
+    log(f"obtener_datos_jugador: Finalización con {len(datos_de_jugadores)} jugadores procesados")
     return datos_de_jugadores
 
 
@@ -212,63 +187,11 @@ def obtener_datos_jornadas(driver):
     log("obtener_datos_jornadas: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
-
-    try:
-        enlace_mas = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")
-        ))
-        enlace_mas.click()
-        log("obtener_datos_jornadas: Enlace 'Más' clickeado")
-    except Exception as e:
-        log(f"obtener_datos_jornadas: Error al hacer clic en 'Más': {e}")
-        return []
-
-    driver.implicitly_wait(2)
-
-    try:
-        enlace_jugadores = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(text(), 'Jugadores')]")
-        ))
-        enlace_jugadores.click()
-        log("obtener_datos_jornadas: Enlace 'Jugadores' clickeado")
-    except Exception as e:
-        log(f"obtener_datos_jornadas: Error al hacer clic en 'Jugadores': {e}")
-        return []
-
-    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
-
-    while True:
-        try:
-            button = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//button[contains(text(), 'Ver más')]")
-            ))
-            button.click()
-            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located(
-                (By.XPATH, '//div[@class="player-list"]')
-            ))
-            log("obtener_datos_jornadas: Botón 'Ver más' clickeado")
-        except:
-            break
-
-    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
-    url_jugadores = []
-
-    for player in players:
-        try:
-            player_link = wait.until(EC.element_to_be_clickable(
-                (By.CLASS_NAME, 'btn.btn-sw-link.player')
-            ))
-            player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
-            url_jugadores.append(player_url)
-        except Exception as e:
-            log(f"obtener_datos_jornadas: Error obteniendo URL de jugador: {e}")
-            continue
-
-    log(f"obtener_datos_jornadas: {len(url_jugadores)} URLs de jugadores recopiladas")
-
     datos_jornadas = []
+    
+    urls_jugadores = obtener_urls_desde_db()
 
-    for player_url in url_jugadores:
+    for player_url in urls_jugadores:
         driver.get(player_url)
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
@@ -276,11 +199,12 @@ def obtener_datos_jornadas(driver):
         except Exception as e:
             log(f"obtener_datos_jornadas: Error obteniendo nombre/apellido en {player_url}: {e}")
             continue
-
-        elements = driver.find_elements(By.XPATH, '//div[@class="line btn btn-player-gw"]')
+        player_id = player_url.split("/players/")[1].split("/")[0]
 
         for element in elements:
             datos_jornada = {}
+            datos_jornada['id_jugador'] = player_id
+            elements = driver.find_elements(By.XPATH, '//div[@class="line btn btn-player-gw"]')
             try:
                 gw = element.find_element(By.XPATH, './/div[@class="gw"]').text
                 scores = element.find_elements(By.XPATH, './/div[contains(@class, "score ")]')
@@ -361,63 +285,10 @@ def obtener_registros_transferencia(driver):
     log("obtener_registros_transferencia: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
-
-    try:
-        enlace_mas = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")
-        ))
-        enlace_mas.click()
-        log("obtener_registros_transferencia: Enlace 'Más' clickeado")
-    except Exception as e:
-        log(f"obtener_registros_transferencia: Error al hacer clic en 'Más': {e}")
-        return []
-
-    driver.implicitly_wait(2)
-
-    try:
-        enlace_jugadores = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(text(), 'Jugadores')]")
-        ))
-        enlace_jugadores.click()
-        log("obtener_registros_transferencia: Enlace 'Jugadores' clickeado")
-    except Exception as e:
-        log(f"obtener_registros_transferencia: Error al hacer clic en 'Jugadores': {e}")
-        return []
-
-    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
-
-    while True:
-        try:
-            button = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//button[contains(text(), 'Ver más')]")
-            ))
-            button.click()
-            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located(
-                (By.XPATH, '//div[@class="player-list"]')
-            ))
-            log("obtener_registros_transferencia: Botón 'Ver más' clickeado")
-        except:
-            break
-
-    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
-    url_jugadores = []
-
-    for player in players:
-        try:
-            player_link = wait.until(EC.element_to_be_clickable(
-                (By.CLASS_NAME, 'btn.btn-sw-link.player')
-            ))
-            player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
-            url_jugadores.append(player_url)
-        except Exception as e:
-            log(f"obtener_registros_transferencia: Error obteniendo URL de jugador: {e}")
-            continue
-
-    log(f"obtener_registros_transferencia: {len(url_jugadores)} URLs de jugadores recolectadas")
-
     todos_registros = []
+    urls_jugadores = obtener_urls_desde_db()
 
-    for player_url in url_jugadores:
+    for player_url in urls_jugadores:
         driver.get(player_url)
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
@@ -427,6 +298,8 @@ def obtener_registros_transferencia(driver):
             continue
 
         registros_transferencia = []
+        player_id = player_url.split("/players/")[1].split("/")[0]
+        registros_transferencia['id_jugador'] = player_id
         try:
             box_records_div = driver.find_element(By.XPATH, '//div[@class="box box-records"]')
             lis = box_records_div.find_elements(By.XPATH, './ul/li')
@@ -476,64 +349,14 @@ def obtener_puntos(driver):
     log("obtener_puntos: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
-
-    try:
-        enlace_mas = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")
-        ))
-        enlace_mas.click()
-        log("obtener_puntos: Enlace 'Más' clickeado")
-    except Exception as e:
-        log(f"obtener_puntos: Error al hacer clic en 'Más': {e}")
-        return []
-
-    driver.implicitly_wait(2)
-
-    try:
-        enlace_jugadores = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(text(), 'Jugadores')]")
-        ))
-        enlace_jugadores.click()
-        log("obtener_puntos: Enlace 'Jugadores' clickeado")
-    except Exception as e:
-        log(f"obtener_puntos: Error al hacer clic en 'Jugadores': {e}")
-        return []
-
-    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
-
-    while True:
-        try:
-            button = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//button[contains(text(), 'Ver más')]")
-            ))
-            button.click()
-            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located(
-                (By.XPATH, '//div[@class="player-list"]')
-            ))
-            log("obtener_puntos: Botón 'Ver más' clickeado")
-        except:
-            break
-
-    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
-    url_jugadores = []
-
-    for player in players:
-        try:
-            player_link = wait.until(EC.element_to_be_clickable(
-                (By.CLASS_NAME, 'btn.btn-sw-link.player')
-            ))
-            player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
-            url_jugadores.append(player_url)
-        except Exception as e:
-            log(f"obtener_puntos: Error obteniendo URL de jugador: {e}")
-            continue
-
-    log(f"obtener_puntos: {len(url_jugadores)} URLs de jugadores recolectadas")
-
     todos_puntos = []
+    
+    urls_jugadores = obtener_urls_desde_db()
 
-    for player_url in url_jugadores:
+    for player_url in urls_jugadores:
         driver.get(player_url)
+        player_id = player_url.split("/players/")[1].split("/")[0]
+        todos_puntos['id_jugador'] = player_id
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
             surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
@@ -604,64 +427,14 @@ def obtener_valores(driver):
     log("obtener_valores: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
-
-    try:
-        enlace_mas = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")
-        ))
-        enlace_mas.click()
-        log("obtener_valores: Enlace 'Más' clickeado")
-    except Exception as e:
-        log(f"obtener_valores: Error al hacer clic en 'Más': {e}")
-        return []
-
-    driver.implicitly_wait(2)
-
-    try:
-        enlace_jugadores = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//button[contains(text(), 'Jugadores')]")
-        ))
-        enlace_jugadores.click()
-        log("obtener_valores: Enlace 'Jugadores' clickeado")
-    except Exception as e:
-        log(f"obtener_valores: Error al hacer clic en 'Jugadores': {e}")
-        return []
-
-    driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.END)
-
-    while True:
-        try:
-            button = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//button[contains(text(), 'Ver más')]")
-            ))
-            button.click()
-            WebDriverWait(driver, 1).until(EC.invisibility_of_element_located(
-                (By.XPATH, '//div[@class="player-list"]')
-            ))
-            log("obtener_valores: Botón 'Ver más' clickeado")
-        except:
-            break
-
-    players = driver.find_elements(By.XPATH, '//ul[@class="player-list search-players-list"]/li')
-    url_jugadores = []
-
-    for player in players:
-        try:
-            player_link = wait.until(EC.element_to_be_clickable(
-                (By.CLASS_NAME, 'btn.btn-sw-link.player')
-            ))
-            player_url = player.find_element(By.TAG_NAME, 'a').get_attribute('href')
-            url_jugadores.append(player_url)
-        except Exception as e:
-            log(f"obtener_valores: Error obteniendo URL de jugador: {e}")
-            continue
-
-    log(f"obtener_valores: {len(url_jugadores)} URLs de jugadores recolectadas")
-
     valores = []
+    
+    urls_jugadores = obtener_urls_desde_db()
 
-    for player_url in url_jugadores:
+    for player_url in urls_jugadores:
         driver.get(player_url)
+        player_id = player_url.split("/players/")[1].split("/")[0]
+        valores['id_jugador'] = player_id
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
         except Exception:

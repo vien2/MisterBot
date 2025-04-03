@@ -30,20 +30,17 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                     if resultado:
                         valor_incremental = resultado[0]
 
-                        # Convertimos el tipo de la columna en el DataFrame para que sea comparable
                         if isinstance(valor_incremental, str):
                             try:
-                                # Intentamos parsear como datetime si tiene formato de fecha
                                 valor_incremental_dt = pd.to_datetime(valor_incremental, errors='coerce')
                                 if not pd.isnull(valor_incremental_dt):
                                     df[incremental_field] = pd.to_datetime(df[incremental_field], errors='coerce')
                                     valor_incremental = valor_incremental_dt
                             except Exception:
-                                pass  # si no es parseable como fecha, lo tratamos como texto
+                                pass
 
                         log(f"Carga incremental: filtrando {incremental_field} > {valor_incremental}")
                         df = df[df[incremental_field] > valor_incremental]
-
                     else:
                         log("Carga incremental: sin valor previo, se cargará todo")
 
@@ -56,15 +53,24 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                     }
                     log(f"Carga diferencial: registros en DB: {len(registros_db)}")
 
-                    df["__clave__"] = df[clave_conflicto].astype(str).agg("-".join, axis=1)
-                    df = df[df["__clave__"].apply(
-                        lambda k: k not in registros_db or registros_db[k] != df.loc[df["__clave__"] == k, hash_field].values[0]
+                    df["__clave__"] = df[clave_conflicto].astype(str).apply(tuple, axis=1)
+                    df = df[df.apply(
+                        lambda row: registros_db.get(tuple(row[clave_conflicto].astype(str))) != row[hash_field],
+                        axis=1
                     )]
                     df.drop(columns=["__clave__"], inplace=True)
                     log(f"Carga diferencial: nuevos o modificados: {len(df)}")
 
+                # Carga acumulada (solo inserciones sin verificar nada)
+                elif tipo_carga == "acumulado":
+                    log("Carga acumulada: se insertarán todos los registros tal cual vienen.")
+
                 if df.empty:
                     log("Carga: No hay registros nuevos que cargar tras filtros.")
+                    destino_ok = ruta_csv.replace("data/", "data/ok/")
+                    os.makedirs(os.path.dirname(destino_ok), exist_ok=True)
+                    shutil.move(ruta_csv, destino_ok)
+                    log(f"Carga exitosa. Archivo movido a: {destino_ok}")
                     return
 
                 # 💡 Filtrar columnas que existen en destino
@@ -74,16 +80,14 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                 """, (schema, tabla))
                 columnas_validas = [row[0] for row in cur.fetchall()]
 
-                # Nos quedamos solo con columnas que existen en la tabla destino
                 df = df[[col for col in df.columns if col in columnas_validas]]
 
                 columnas = list(df.columns)
                 columnas_sql = ', '.join([f'"{col}"' for col in columnas])
                 registros = [tuple(x) for x in df.to_numpy()]
 
-                # Generar cláusula ON CONFLICT
                 conflict_clause = ""
-                if clave_conflicto:
+                if tipo_carga in ("total", "incremental", "diferencial") and clave_conflicto:
                     conflict_keys = ', '.join([f'"{col}"' for col in clave_conflicto])
                     updates = ', '.join([f'"{col}" = EXCLUDED."{col}"' for col in columnas if col not in clave_conflicto])
                     conflict_clause = f'ON CONFLICT ({conflict_keys}) DO UPDATE SET {updates}'
@@ -105,7 +109,6 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
 
                 conn.commit()
 
-        # ✅ Mover archivo a OK
         destino_ok = ruta_csv.replace("data/", "data/ok/")
         os.makedirs(os.path.dirname(destino_ok), exist_ok=True)
         shutil.move(ruta_csv, destino_ok)

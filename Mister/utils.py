@@ -7,24 +7,31 @@ import psycopg2
 import hashlib
 import json
 
-def añadir_hash(lista_dicts):
-    """
-    Añade un campo 'hash' a cada diccionario de la lista, generado con json.dumps ordenado.
-    """
-    log("añadir_hash: Iniciamos a añadir hash")
-    if not isinstance(lista_dicts, list):
-        raise TypeError("Se esperaba una lista de diccionarios")
+def añadir_hash(df, schema='dbo', tabla=''):
+    if not tabla:
+        raise ValueError("Para añadir_hash con orden de tabla real, debes pasar el nombre de la tabla.")
 
-    for item in lista_dicts:
-        if not isinstance(item, dict):
-            raise TypeError("Cada elemento debe ser un diccionario")
+    columnas_excluir = {'f_carga', 'hash'}  # puedes excluir más si lo deseas
 
-        # Serialización ordenada y estable
-        item_serializado = json.dumps(item, sort_keys=True, ensure_ascii=False)
-        item["hash"] = hashlib.sha256(item_serializado.encode("utf-8")).hexdigest()
+    with conexion_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = %s AND table_name = %s
+                ORDER BY ordinal_position
+            """, (schema, tabla))
+            columnas_ordenadas = [row[0] for row in cur.fetchall() if row[0] not in columnas_excluir]
 
-    log("añadir_hash: hash añadido")
-    return lista_dicts
+    # Eliminar columnas que no existan en el DataFrame (por si acaso)
+    columnas_validas = [col for col in columnas_ordenadas if col in df.columns]
+
+    def calcular_hash(row):
+        cadena = ''.join(str(row[col]) for col in columnas_validas)
+        return hashlib.sha256(cadena.encode('utf-8')).hexdigest()
+
+    df['hash'] = df.apply(calcular_hash, axis=1)
+    return df
 
 def añadir_f_carga(lista_registros):
     log(f"añadir_f_carga: Iniciamos a añadir f_carga")
@@ -190,3 +197,21 @@ def get_base_path_from_ini(archivo='config.ini', seccion='paths', clave='base_cs
     config = ConfigParser()
     config.read("config.ini")
     return config.get("paths", "base_csv", fallback="./data/csv")
+
+def obtener_urls_desde_db(schema="dbo", tabla="urls_jugadores"):
+    """
+    Devuelve una lista de URLs de jugadores desde la tabla de PostgreSQL.
+    """
+    log(f"obtener_urls_desde_db: Cargando URLs desde {schema}.{tabla}")
+    urls = []
+
+    try:
+        with conexion_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT url FROM {schema}.{tabla}")
+                urls = [row[0] for row in cur.fetchall()]
+                log(f"obtener_urls_desde_db: Se obtuvieron {len(urls)} URLs")
+    except Exception as e:
+        log(f"obtener_urls_desde_db: Error al obtener URLs desde PostgreSQL - {e}")
+
+    return urls
