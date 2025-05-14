@@ -1,12 +1,12 @@
 import pandas as pd
 import os, shutil
-from utils import conexion_db, log
+from utils import conexion_db, log, limpiar_columna
 from psycopg2.extras import execute_values
 
 def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field=None, clave_conflicto=None, hash_field=None):
     try:
         df = pd.read_csv(ruta_csv)
-        df.columns = [col.lower() for col in df.columns]
+        df.columns = [limpiar_columna(col) for col in df.columns]
 
         if df.empty:
             log(f"No se cargaron datos porque el archivo {ruta_csv} está vacío.")
@@ -15,12 +15,10 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
         with conexion_db() as conn:
             with conn.cursor() as cur:
 
-                # Eliminar datos anteriores en carga total
                 if tipo_carga == "total":
                     cur.execute(f"DELETE FROM {schema}.{tabla}")
                     log(f"Carga total: datos previos eliminados de {schema}.{tabla}")
 
-                # Carga incremental
                 elif tipo_carga == "incremental" and incremental_field:
                     cur.execute(f"""
                         SELECT valor_incremental FROM {schema}.incremental_load_info 
@@ -44,7 +42,6 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                     else:
                         log("Carga incremental: sin valor previo, se cargará todo")
 
-                # Carga diferencial
                 elif tipo_carga == "diferencial" and hash_field and clave_conflicto:
                     conflicto_cols = ', '.join(clave_conflicto)
                     cur.execute(f"SELECT {conflicto_cols}, {hash_field} FROM {schema}.{tabla}")
@@ -61,7 +58,6 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                     df.drop(columns=["__clave__"], inplace=True)
                     log(f"Carga diferencial: nuevos o modificados: {len(df)}")
 
-                # Carga acumulada (solo inserciones sin verificar nada)
                 elif tipo_carga == "acumulado":
                     log("Carga acumulada: se insertarán todos los registros tal cual vienen.")
 
@@ -73,17 +69,17 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                     log(f"Carga exitosa. Archivo movido a: {destino_ok}")
                     return
 
-                # 💡 Filtrar columnas que existen en destino
                 cur.execute(f"""
                     SELECT column_name FROM information_schema.columns 
                     WHERE table_schema = %s AND table_name = %s
                 """, (schema, tabla))
                 columnas_validas = [row[0] for row in cur.fetchall()]
 
-                df = df[[col for col in df.columns if col in columnas_validas]]
+                df = df[[col for col in columnas_validas if col in df.columns]]
 
                 columnas = list(df.columns)
                 columnas_sql = ', '.join([f'"{col}"' for col in columnas])
+                df = df.where(pd.notnull(df), None)
                 registros = [tuple(x) for x in df.to_numpy()]
 
                 conflict_clause = ""

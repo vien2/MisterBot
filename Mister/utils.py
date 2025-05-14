@@ -5,7 +5,8 @@ from configparser import ConfigParser
 from contextlib import contextmanager
 import psycopg2
 import hashlib
-import json
+import unicodedata
+import re
 
 def añadir_hash(df, schema='dbo', tabla=''):
     if not tabla:
@@ -215,3 +216,10 @@ def obtener_urls_desde_db(schema="dbo", tabla="urls_jugadores"):
         log(f"obtener_urls_desde_db: Error al obtener URLs desde PostgreSQL - {e}")
 
     return urls
+
+def limpiar_columna(col):
+    # Normaliza (quita tildes), reemplaza espacios por _, quita caracteres raros
+    col = unicodedata.normalize("NFD", col)
+    col = col.encode("ascii", "ignore").decode("utf-8")  # elimina tildes
+    col = col.lower().replace(" ", "_")
+    return col
