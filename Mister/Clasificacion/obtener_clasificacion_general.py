@@ -38,14 +38,15 @@ def obtener_clasificacion_general(driver):
             position = item.find_element(By.CLASS_NAME, 'position').text.strip()
             name = item.find_element(By.CLASS_NAME, 'name').text.strip()
 
-            # Extraer puntos (el div que tiene el número directamente, sin span ni diff)
+            # Extraer puntos
             points_element = item.find_element(By.CLASS_NAME, 'points')
             points_text = points_element.get_attribute("textContent").strip()
             puntos_match = re.search(r"\d[\d.]*", points_text)
             puntos = puntos_match.group(0).replace(".", "") if puntos_match else "0"
 
-            # Extraer jugado y valor
-            played_text = item.find_element(By.CLASS_NAME, 'played').text.strip()
+            # Extraer jugado y valor usando textContent
+            played_element = item.find_element(By.CLASS_NAME, 'played')
+            played_text = played_element.get_attribute("textContent").strip()
             partes = [x.strip() for x in played_text.split("·")]
             jugadores = re.search(r"\d+", partes[0]).group() if partes else "0"
             valor_total = partes[1].replace(".", "") if len(partes) > 1 else "0"
@@ -54,7 +55,7 @@ def obtener_clasificacion_general(driver):
                 "usuario": name,
                 "posicion": position,
                 "puntos": puntos,
-                "ugadores": jugadores,
+                "jugadores": jugadores,
                 "valor_total": valor_total
             }
 

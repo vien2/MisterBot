@@ -6,7 +6,8 @@ from selenium.webdriver.common.keys import Keys
 import re
 from utils import log,obtener_urls_desde_db
 import unicodedata
-from iniciar_sesion import iniciar_sesion
+from utils import conexion_db
+import time
 
 def normalizar_label(texto):
     return unicodedata.normalize('NFKD', texto).encode('ascii', 'ignore').decode('utf-8').lower().strip()
@@ -184,102 +185,405 @@ def obtener_datos_jugador(driver):
 
 
 def obtener_datos_jornadas(driver):
-    log("obtener_datos_jornadas: Inicio de la función")
+    log("obtener_datos_jornadas_inicial: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
     datos_jornadas = []
-    
     urls_jugadores = obtener_urls_desde_db()
 
-    for player_url in urls_jugadores:
-        driver.get(player_url)
-        try:
-            name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
-            surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
-        except Exception as e:
-            log(f"obtener_datos_jornadas: Error obteniendo nombre/apellido en {player_url}: {e}")
-            continue
-        player_id = player_url.split("/players/")[1].split("/")[0]
+    with conexion_db() as conn:
+        with conn.cursor() as cur:
 
-        for element in elements:
-            datos_jornada = {}
-            datos_jornada['id_jugador'] = player_id
-            elements = driver.find_elements(By.XPATH, '//div[@class="line btn btn-player-gw"]')
-            try:
-                gw = element.find_element(By.XPATH, './/div[@class="gw"]').text
-                scores = element.find_elements(By.XPATH, './/div[contains(@class, "score ")]')
-                score = scores[0].text if scores else "Sin puntuación"
-
-                eventos_jornada = []
-                eventos_div = element.find_elements(By.XPATH, './/div[contains(@class, "events")]')
-                for div in eventos_div:
-                    eventos_use = div.find_elements(By.XPATH, ".//*[name()='svg' and @class='match-event']")
-                    for use in eventos_use:
-                        evento_href_element = use.find_element(By.XPATH, ".//*[contains(@href, 'events')]")
-                        if evento_href_element:
-                            evento_href = evento_href_element.get_attribute('href')
-                            tipo_evento = evento_href.split('#')[1] if '#' in evento_href else evento_href
-                            eventos_jornada.append(tipo_evento)
-
-                datos_jornada.update({
-                    'Nombre': name,
-                    'Apellidos': surname,
-                    'Jornada': gw,
-                    'Puntuacion': score,
-                    'Eventos': eventos_jornada
-                })
-
-                bar_negatives = element.find_elements(By.XPATH, './/div[contains(@class, "bar negative")]')
-                bar_negative_text = bar_negatives[0].text if bar_negatives else "Sin texto de sanción o lesión"
-                datos_jornada['SancionOLesion'] = bar_negative_text
-
-                if "Sancionado" in bar_negative_text:
-                    datos_jornada['SancionOLesion'] = 'Sancionado'
-                    log(f"obtener_datos_jornadas: {name} sancionado en jornada {gw}")
+            for player_url in urls_jugadores:
+                driver.get(player_url)
+                try:
+                    name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
+                    surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+                except Exception:
                     continue
-                elif score == "Sin puntuación" and not bar_negatives:
-                    datos_jornada['SancionOLesion'] = 'No jugó la jornada'
+
+                player_id = player_url.split("/players/")[1].split("/")[0]
+
+                try:
+                    cur.execute("SELECT ultima_jornada FROM dbo.progreso_jornadas WHERE id_jugador = %s", (player_id,))
+                    resultado = cur.fetchone()
+                    ultima_jornada = resultado[0] if resultado else 0
+                except Exception:
+                    ultima_jornada = 0
+
+                try:
+                    elements = driver.find_elements(By.XPATH, '//div[@class="line btn btn-player-gw"]')
+                except Exception:
                     continue
-                else:
-                    eventos_div = element.find_elements(By.XPATH, './/div[@class="bar"]')
-                    for evento in eventos_div:
-                        intentos = 3
-                        while intentos > 0:
+                
+                jornadas_encontradas = set()
+                jornadas_insertadas = []
+
+                for element in elements:
+                    try:
+                        gw_text = element.find_element(By.XPATH, './/div[@class="gw"]').text
+                        numero_jornada = int(re.search(r'\d+', gw_text).group())
+                    except Exception:
+                        continue
+
+                    jornadas_encontradas.add(numero_jornada)
+
+                    if numero_jornada <= ultima_jornada:
+                        continue
+
+                    datos_jornada = {
+                        "id_jugador": player_id,
+                        "Nombre": name,
+                        "Apellido": surname,
+                        "Jornada": gw_text
+                    }
+
+                    try:
+                        scores = element.find_elements(By.XPATH, './/div[contains(@class, "score ")]')
+                        score = scores[0].text if scores else "Sin puntuación"
+
+                        eventos_jornada = []
+                        eventos_div = element.find_elements(By.XPATH, './/div[contains(@class, "events")]')
+                        for div in eventos_div:
+                            eventos_use = div.find_elements(By.XPATH, ".//*[name()='svg' and @class='match-event']")
+                            for use in eventos_use:
+                                try:
+                                    evento_href_element = use.find_element(By.XPATH, ".//*[contains(@href, 'events')]")
+                                    if evento_href_element:
+                                        evento_href = evento_href_element.get_attribute('href')
+                                        tipo_evento = evento_href.split('#')[1] if '#' in evento_href else evento_href
+                                        eventos_jornada.append(tipo_evento)
+                                except:
+                                    continue
+
+                        datos_jornada.update({
+                            'Puntuacion': score,
+                            'Eventos': " | ".join(eventos_jornada) if eventos_jornada else ""
+                        })
+
+                        bar_negatives = element.find_elements(By.XPATH, './/div[contains(@class, "bar negative")]')
+                        bar_negative_text = bar_negatives[0].text if bar_negatives else "Sin texto de sanción o lesión"
+                        datos_jornada['SancionOLesion'] = bar_negative_text
+
+                        if "Sancionado" in bar_negative_text:
+                            datos_jornada['SancionOLesion'] = 'Sancionado'
+                            datos_jornadas.append(datos_jornada)
+                            log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (Sancionado)")
+                            log(f"→ Datos: {datos_jornada}")
+                            jornadas_insertadas.append(numero_jornada)
+                            continue
+
+                        elif score == "Sin puntuación" and not bar_negatives:
+                            datos_jornada['SancionOLesion'] = 'No jugó la jornada'
+                            datos_jornadas.append(datos_jornada)
+                            log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (No jugó)")
+                            log(f"→ Datos: {datos_jornada}")
+                            jornadas_insertadas.append(numero_jornada)
+                            continue
+
+                        # Extraer estadísticas si hay popup
+                        stats_extraidos = False
+                        eventos_div = element.find_elements(By.XPATH, './/div[@class="bar"]')
+
+                        for evento in eventos_div:
                             try:
-                                evento.click()
-                                button_xpath = "//button[contains(text(), 'Ver más estadísticas')]"
-                                wait.until(EC.element_to_be_clickable((By.XPATH, button_xpath))).click()
-                                tabla = wait.until(EC.presence_of_element_located(
-                                    (By.XPATH, './/div[contains(@class, "content player-breakdown")]')
-                                ))
+                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", evento)
+                                time.sleep(0.3)
+                                driver.execute_script("arguments[0].click();", evento)
+
+                                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "popup")))
+
+                                try:
+                                    toast = WebDriverWait(driver, 1).until(
+                                        EC.presence_of_element_located((By.ID, "toast"))
+                                    )
+                                    if "no ha puntuado" in toast.text.lower():
+                                        datos_jornada['SancionOLesion'] = 'No jugó la jornada'
+                                        stats_extraidos = True
+                                        break
+                                except:
+                                    pass
+
+                                try:
+                                    WebDriverWait(driver, 10).until(
+                                        EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Ver más estadísticas')]"))
+                                    )
+                                    boton_stats = driver.find_element(By.XPATH, "//button[contains(text(), 'Ver más estadísticas')]")
+                                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton_stats)
+                                    time.sleep(0.5)
+                                    driver.execute_script("arguments[0].click();", boton_stats)
+                                except Exception as e:
+                                    log(f"No se pudo hacer clic en 'Ver más estadísticas': {e}")
+                                    try:
+                                        boton_stats_fresco = driver.find_element(By.XPATH, "//button[contains(text(), 'Ver más estadísticas')]")
+                                        data_stats = boton_stats_fresco.get_attribute("data-stats")
+                                        if data_stats:
+                                            import json
+                                            stats_dict = json.loads(data_stats.replace('&quot;', '"'))
+                                            for k, v in stats_dict.items():
+                                                datos_jornada[k] = str(v)
+                                            stats_extraidos = True
+                                            break
+                                    except Exception as e2:
+                                        log(f"No se pudieron leer los data-stats directamente tras refrescar: {e2}")
+                                    continue
+
+                                tabla = WebDriverWait(driver, 10).until(
+                                    EC.presence_of_element_located((By.XPATH, '//div[contains(@class, "content player-breakdown")]'))
+                                )
                                 filas = tabla.find_elements(By.TAG_NAME, 'tr')
                                 for fila in filas:
                                     columnas = fila.find_elements(By.TAG_NAME, 'td')
                                     if len(columnas) == 2:
-                                        campo = columnas[0].text
-                                        valor = columnas[1].text
+                                        campo = columnas[0].text.strip()
+                                        valor = columnas[1].text.strip()
                                         datos_jornada[campo] = valor
 
-                                # Cerrar popup
-                                if wait.until(EC.presence_of_element_located((By.ID, 'popup'))):
-                                    driver.find_element(By.CSS_SELECTOR, '#popup .popup-close').click()
-                                break
-                            except StaleElementReferenceException:
-                                intentos -= 1
-                                if intentos == 0:
-                                    log(f"obtener_datos_jornadas: No se pudo recuperar stats de {name} en jornada {gw}")
-                            except Exception:
-                                datos_jornada['Error'] = 'No jugó la jornada'
+                                try:
+                                    popup_close = driver.find_element(By.CSS_SELECTOR, '#popup .popup-close')
+                                    driver.execute_script("arguments[0].click();", popup_close)
+                                except:
+                                    pass
+
+                                stats_extraidos = True
                                 break
 
-                datos_jornadas.append(datos_jornada)
-                log(f"obtener_datos_jornadas: Datos añadidos para {name} en jornada {gw}")
-            except Exception as e:
-                log(f"obtener_datos_jornadas: Error procesando jornada de {name}: {e}")
+                            except Exception as e:
+                                log(f"Error al intentar extraer estadísticas del popup: {e}")
+                                continue
 
-    log(f"obtener_datos_jornadas: Finalización con {len(datos_jornadas)} registros procesados")
+                        if not stats_extraidos and datos_jornada['SancionOLesion'] == "Sin texto de sanción o lesión":
+                            datos_jornada['SancionOLesion'] = 'No se pudieron extraer estadísticas'
+
+                        datos_jornadas.append(datos_jornada)
+                        log(f"Datos extraídos para {name} {surname} en jornada {gw_text}")
+                        log(f"→ Datos: {datos_jornada}")
+                        jornadas_insertadas.append(numero_jornada)
+
+                    except Exception:
+                        continue
+
+                if jornadas_insertadas:
+                    nueva_jornada = max(jornadas_insertadas)
+                    cur.execute("""
+                        INSERT INTO dbo.progreso_jornadas(id_jugador, ultima_jornada)
+                        VALUES (%s, %s)
+                        ON CONFLICT (id_jugador)
+                        DO UPDATE SET ultima_jornada = EXCLUDED.ultima_jornada
+                    """, (player_id, nueva_jornada))
+
+                    jornadas_teoricas = set(range(ultima_jornada + 1, max(jornadas_encontradas) + 1))
+                    jornadas_faltantes = jornadas_teoricas - set(jornadas_insertadas)
+
+                    for j_faltante in jornadas_faltantes:
+                        cur.execute("""
+                            INSERT INTO dbo.progreso_jornadas_pendientes(id_jugador, jornada)
+                            VALUES (%s, %s)
+                            ON CONFLICT DO NOTHING
+                        """, (player_id, j_faltante))
+
+                time.sleep(0.3)
+
+        conn.commit()
+
+    log(f"obtener_datos_jornadas_inicial: Finalización con {len(datos_jornadas)} registros procesados")
     return datos_jornadas
 
+
+def obtener_datos_jornadas_inicial(driver, max_jornada=34, salto=2):
+    log("obtener_datos_jornadas_inicial: Inicio de la función")
+
+    wait = WebDriverWait(driver, 2)
+    datos_jornadas = []
+    urls_jugadores = obtener_urls_desde_db()
+
+    with conexion_db() as conn:
+        with conn.cursor() as cur:
+
+            for player_url in urls_jugadores:
+                driver.get(player_url)
+                try:
+                    name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
+                    surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+                except Exception:
+                    continue
+
+                player_id = player_url.split("/players/")[1].split("/")[0]
+
+                try:
+                    cur.execute("SELECT ultima_jornada FROM dbo.progreso_jornadas WHERE id_jugador = %s", (player_id,))
+                    resultado = cur.fetchone()
+                    ultima_jornada = resultado[0] if resultado else 0
+                except Exception:
+                    ultima_jornada = 0
+
+                if ultima_jornada >= max_jornada:
+                    continue
+
+                try:
+                    elements = driver.find_elements(By.XPATH, '//div[@class="line btn btn-player-gw"]')
+                except Exception:
+                    continue
+
+                jornadas_insertadas = []
+
+                for element in elements:
+                    try:
+                        gw_text = element.find_element(By.XPATH, './/div[@class="gw"]').text
+                        numero_jornada = int(re.search(r'\d+', gw_text).group())
+                    except Exception:
+                        continue
+
+                    if not (ultima_jornada < numero_jornada <= ultima_jornada + salto):
+                        continue
+
+                    datos_jornada = {
+                        "id_jugador": player_id,
+                        "Nombre": name,
+                        "Apellido": surname,
+                        "Jornada": gw_text
+                    }
+
+                    try:
+                        scores = element.find_elements(By.XPATH, './/div[contains(@class, "score ")]')
+                        score = scores[0].text if scores else "Sin puntuación"
+
+                        eventos_jornada = []
+                        eventos_div = element.find_elements(By.XPATH, './/div[contains(@class, "events")]')
+                        for div in eventos_div:
+                            eventos_use = div.find_elements(By.XPATH, ".//*[name()='svg' and @class='match-event']")
+                            for use in eventos_use:
+                                try:
+                                    evento_href_element = use.find_element(By.XPATH, ".//*[contains(@href, 'events')]")
+                                    if evento_href_element:
+                                        evento_href = evento_href_element.get_attribute('href')
+                                        tipo_evento = evento_href.split('#')[1] if '#' in evento_href else evento_href
+                                        eventos_jornada.append(tipo_evento)
+                                except:
+                                    continue
+
+                        datos_jornada.update({
+                            'Puntuacion': score,
+                            'Eventos': " | ".join(eventos_jornada) if eventos_jornada else ""
+                        })
+
+                        bar_negatives = element.find_elements(By.XPATH, './/div[contains(@class, "bar negative")]')
+                        bar_negative_text = bar_negatives[0].text if bar_negatives else "Sin texto de sanción o lesión"
+                        datos_jornada['SancionOLesion'] = bar_negative_text
+
+                        if "Sancionado" in bar_negative_text:
+                            datos_jornada['SancionOLesion'] = 'Sancionado'
+                            datos_jornadas.append(datos_jornada)
+                            log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (Sancionado)")
+                            log(f"→ Datos: {datos_jornada}")
+                            jornadas_insertadas.append(numero_jornada)
+                            continue
+
+                        elif score == "Sin puntuación" and not bar_negatives:
+                            datos_jornada['SancionOLesion'] = 'No jugó la jornada'
+                            datos_jornadas.append(datos_jornada)
+                            log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (No jugó)")
+                            log(f"→ Datos: {datos_jornada}")
+                            jornadas_insertadas.append(numero_jornada)
+                            continue
+
+                        # Extraer estadísticas si hay popup
+                        stats_extraidos = False
+                        eventos_div = element.find_elements(By.XPATH, './/div[@class="bar"]')
+
+                        for evento in eventos_div:
+                            try:
+                                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", evento)
+                                time.sleep(0.3)
+                                driver.execute_script("arguments[0].click();", evento)
+
+                                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "popup")))
+
+                                try:
+                                    toast = WebDriverWait(driver, 1).until(
+                                        EC.presence_of_element_located((By.ID, "toast"))
+                                    )
+                                    if "no ha puntuado" in toast.text.lower():
+                                        datos_jornada['SancionOLesion'] = 'No jugó la jornada'
+                                        stats_extraidos = True
+                                        break
+                                except:
+                                    pass
+
+                                try:
+                                    WebDriverWait(driver, 10).until(
+                                        EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'Ver más estadísticas')]"))
+                                    )
+                                    boton_stats = driver.find_element(By.XPATH, "//button[contains(text(), 'Ver más estadísticas')]")
+                                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton_stats)
+                                    time.sleep(0.5)
+                                    driver.execute_script("arguments[0].click();", boton_stats)
+                                except Exception as e:
+                                    log(f"No se pudo hacer clic en 'Ver más estadísticas': {e}")
+                                    try:
+                                        boton_stats_fresco = driver.find_element(By.XPATH, "//button[contains(text(), 'Ver más estadísticas')]")
+                                        data_stats = boton_stats_fresco.get_attribute("data-stats")
+                                        if data_stats:
+                                            import json
+                                            stats_dict = json.loads(data_stats.replace('&quot;', '"'))
+                                            for k, v in stats_dict.items():
+                                                datos_jornada[k] = str(v)
+                                            stats_extraidos = True
+                                            break
+                                    except Exception as e2:
+                                        log(f"No se pudieron leer los data-stats directamente tras refrescar: {e2}")
+                                    continue
+
+                                tabla = WebDriverWait(driver, 10).until(
+                                    EC.presence_of_element_located((By.XPATH, '//div[contains(@class, "content player-breakdown")]'))
+                                )
+                                filas = tabla.find_elements(By.TAG_NAME, 'tr')
+                                for fila in filas:
+                                    columnas = fila.find_elements(By.TAG_NAME, 'td')
+                                    if len(columnas) == 2:
+                                        campo = columnas[0].text.strip()
+                                        valor = columnas[1].text.strip()
+                                        datos_jornada[campo] = valor
+
+                                try:
+                                    popup_close = driver.find_element(By.CSS_SELECTOR, '#popup .popup-close')
+                                    driver.execute_script("arguments[0].click();", popup_close)
+                                except:
+                                    pass
+
+                                stats_extraidos = True
+                                break
+
+                            except Exception as e:
+                                log(f"Error al intentar extraer estadísticas del popup: {e}")
+                                continue
+
+                        if not stats_extraidos and datos_jornada['SancionOLesion'] == "Sin texto de sanción o lesión":
+                            datos_jornada['SancionOLesion'] = 'No se pudieron extraer estadísticas'
+
+                        datos_jornadas.append(datos_jornada)
+                        log(f"Datos extraídos para {name} {surname} en jornada {gw_text}")
+                        log(f"→ Datos: {datos_jornada}")
+                        jornadas_insertadas.append(numero_jornada)
+
+                    except Exception:
+                        continue
+
+                if jornadas_insertadas:
+                    nueva_jornada = min(max(jornadas_insertadas), max_jornada)
+                    cur.execute("""
+                        INSERT INTO dbo.progreso_jornadas(id_jugador, ultima_jornada)
+                        VALUES (%s, %s)
+                        ON CONFLICT (id_jugador)
+                        DO UPDATE SET ultima_jornada = EXCLUDED.ultima_jornada
+                    """, (player_id, nueva_jornada))
+
+                time.sleep(0.3)
+
+        conn.commit()
+
+    log(f"obtener_datos_jornadas_inicial: Finalización con {len(datos_jornadas)} registros procesados")
+    return datos_jornadas
 
 def obtener_registros_transferencia(driver):
     log("obtener_registros_transferencia: Inicio de la función")
@@ -299,7 +603,6 @@ def obtener_registros_transferencia(driver):
 
         registros_transferencia = []
         player_id = player_url.split("/players/")[1].split("/")[0]
-        registros_transferencia['id_jugador'] = player_id
         try:
             box_records_div = driver.find_element(By.XPATH, '//div[@class="box box-records"]')
             lis = box_records_div.find_elements(By.XPATH, './ul/li')
@@ -331,7 +634,8 @@ def obtener_registros_transferencia(driver):
                         "tipo_operacion": tipo_operacion,
                         "usuario_origen": usuario_origen,
                         "usuario_destino": usuario_destino,
-                        "precio": precio
+                        "precio": precio,
+                        "id_jugador": player_id
                     }
                     registros_transferencia.append(registro)
                     log(f"obtener_registros_transferencia: Registro añadido - {name} {surname} | {tipo_operacion} de {usuario_origen} a {usuario_destino}")
@@ -356,7 +660,6 @@ def obtener_puntos(driver):
     for player_url in urls_jugadores:
         driver.get(player_url)
         player_id = player_url.split("/players/")[1].split("/")[0]
-        todos_puntos['id_jugador'] = player_id
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
             surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
@@ -379,6 +682,7 @@ def obtener_puntos(driver):
                 class_attr = puntos_items[0].get_attribute("class")
                 if "alert-no-info" in class_attr:
                     registro = {
+                        "id_jugador": player_id,
                         "Nombre": name,
                         "Apellido": surname,
                         "top": None,
@@ -386,7 +690,7 @@ def obtener_puntos(driver):
                         "right": None
                     }
                     todos_puntos.append(registro)
-                    log(f"obtener_puntos: {name} {surname} no tiene historial de puntos")
+                    #log(f"obtener_puntos: {name} {surname} no tiene historial de puntos")
                     continue
             except Exception:
                 pass
@@ -407,6 +711,7 @@ def obtener_puntos(driver):
                     right = None
 
                 registro = {
+                    "id_jugador": player_id,
                     "Nombre": name,
                     "Apellido": surname,
                     "top": top,
@@ -414,7 +719,7 @@ def obtener_puntos(driver):
                     "right": right
                 }
                 todos_puntos.append(registro)
-                log(f"obtener_puntos: Puntos añadidos para {name} {surname} - top: {top}, bottom: {bottom}, right: {right}")
+                #log(f"obtener_puntos: Puntos añadidos para {name} {surname} - top: {top}, bottom: {bottom}, right: {right}")
             except Exception as e:
                 log(f"obtener_puntos: Error extrayendo punto de {name} {surname}: {e}")
                 continue
@@ -434,7 +739,6 @@ def obtener_valores(driver):
     for player_url in urls_jugadores:
         driver.get(player_url)
         player_id = player_url.split("/players/")[1].split("/")[0]
-        valores['id_jugador'] = player_id
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
         except Exception:
@@ -459,6 +763,7 @@ def obtener_valores(driver):
                 class_attr = valores_items[0].get_attribute("class")
                 if "alert-no-info" in class_attr:
                     registro = {
+                        "id_jugador": player_id,
                         "Nombre": name,
                         "Apellido": surname,
                         "top": None,
@@ -487,6 +792,7 @@ def obtener_valores(driver):
                     right = None
 
                 registro = {
+                    "id_jugador": player_id,
                     "Nombre": name,
                     "Apellido": surname,
                     "top": top,
