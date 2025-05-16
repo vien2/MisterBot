@@ -135,28 +135,40 @@ def obtener_datos_jugador(driver):
         except Exception as e:
             log(f"Error obteniendo estadísticas de {name}: {e}")
 
+        # ✅ BLOQUE CORREGIDO: Historial para obtener propietario actual
         try:
             WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.CLASS_NAME, "box"))
+                EC.presence_of_all_elements_located((By.CLASS_NAME, "box-records"))
             )
-            boxes = driver.find_elements(By.CLASS_NAME, "box")
-            box_owner = next((box for box in boxes if "De " in box.text), None)
+            historial_boxes = driver.find_elements(By.CLASS_NAME, "box-records")
+            movimientos = []
+            for box in historial_boxes:
+                lis = box.find_elements(By.TAG_NAME, "li")
+                for li in lis:
+                    texto = li.text.strip()
+                    if "· Fichaje" in texto and "De" in texto and "a" in texto:
+                        movimientos.append(li)
 
-            if not box_owner:
-                raise Exception("No se encontró texto que comience por 'De ' en los box")
+            if movimientos:
+                ultimo_mov = movimientos[0]  # Más reciente
+                left = ultimo_mov.find_element(By.CLASS_NAME, "left")
+                right = ultimo_mov.find_element(By.CLASS_NAME, "right")
+                texto_bottom = left.find_element(By.CLASS_NAME, "bottom").text
+                precio = right.text.strip()
+                fecha = left.find_element(By.CLASS_NAME, "top").text.strip()
 
-            owner_text = " ".join(box_owner.text.strip().split())
-            match = re.search(r'De (.+?), fichado el (\d{1,2} \w+ \d{4}) por ([\d\.,]+)', owner_text)
-            if match:
-                datos_jugador['Propietario'] = match.group(1)
-                datos_jugador['Fecha'] = match.group(2)
-                datos_jugador['Precio'] = match.group(3)
+                match = re.search(r'De\s+(.*?)\s+a\s+(.*)', texto_bottom)
+                if match:
+                    datos_jugador['Propietario'] = match.group(2).strip()
+                else:
+                    datos_jugador['Propietario'] = "Jugador libre"
+
+                datos_jugador['Fecha'] = fecha
+                datos_jugador['Precio'] = precio
             else:
-                solo_owner = re.search(r'De (.+)', owner_text)
-                datos_jugador['Propietario'] = solo_owner.group(1).strip() if solo_owner else "Jugador libre"
+                datos_jugador['Propietario'] = "Jugador libre"
                 datos_jugador['Fecha'] = ""
                 datos_jugador['Precio'] = ""
-
         except Exception as e:
             log(f"Error extrayendo propietario: {e}")
             datos_jugador['Propietario'] = "Jugador libre"
