@@ -96,8 +96,12 @@ def obtener_datos_jugador(driver):
         try:
             name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
             surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+
+            # ✅ Extraer nombre del equipo
+            team_element = driver.find_element(By.XPATH, '//div[@class="team-position"]/a')
+            equipo = team_element.get_attribute("data-title").strip()
         except Exception as e:
-            log(f"Error obteniendo nombre o apellido: {e}")
+            log(f"Error obteniendo nombre, apellido o equipo: {e}")
             continue
 
         try:
@@ -112,6 +116,7 @@ def obtener_datos_jugador(driver):
 
         datos_jugador['Nombre'] = name
         datos_jugador['Apellido'] = surname
+        datos_jugador['Equipo'] = equipo
         datos_jugador['Posicion'] = position
         player_id = player_url.split("/players/")[1].split("/")[0]
         datos_jugador['id_jugador'] = player_id
@@ -135,7 +140,6 @@ def obtener_datos_jugador(driver):
         except Exception as e:
             log(f"Error obteniendo estadísticas de {name}: {e}")
 
-        # ✅ BLOQUE CORREGIDO: Historial para obtener propietario actual
         try:
             WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.CLASS_NAME, "box-records"))
@@ -150,7 +154,7 @@ def obtener_datos_jugador(driver):
                         movimientos.append(li)
 
             if movimientos:
-                ultimo_mov = movimientos[0]  # Más reciente
+                ultimo_mov = movimientos[0]
                 left = ultimo_mov.find_element(By.CLASS_NAME, "left")
                 right = ultimo_mov.find_element(By.CLASS_NAME, "right")
                 texto_bottom = left.find_element(By.CLASS_NAME, "bottom").text
@@ -194,6 +198,7 @@ def obtener_datos_jugador(driver):
 
     log(f"obtener_datos_jugador: Finalización con {len(datos_de_jugadores)} jugadores procesados")
     return datos_de_jugadores
+
 
 
 def obtener_datos_jornadas(driver):
