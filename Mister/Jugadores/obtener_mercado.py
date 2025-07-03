@@ -4,7 +4,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from utils import log
 
-def obtener_mercado(driver):
+def obtener_mercado(driver,schema=None):
+    _ = schema
     log("obtener_mercado: Inicio de la función")
 
     datos_mercado = []

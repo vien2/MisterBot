@@ -7,7 +7,8 @@ from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import NoSuchElementException
 from utils import log
 
-def obtener_datos_liga(driver):
+def obtener_datos_liga(driver,schema=None):
+    _ = schema
     log("obtener_datos_liga: Inicio de la función")
 
     wait = WebDriverWait(driver, 10)

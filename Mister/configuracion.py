@@ -31,19 +31,20 @@ BASE_FILENAME_CONFIG = {
     "datos_best_xi" : {"nombre" : "datos_best_xi"}
 }
 
-def get_filename_config(tipo, fecha=None):
+def get_filename_config(tipo, fecha=None, schema=None):
     """
     Devuelve configuración para el nombre del archivo CSV.
-    Incluye 'archivo' con el nombre final: nombre_fecha.csv
+    Incluye 'archivo' con el nombre final: schema_nombre_fecha.csv
     """
     config = BASE_FILENAME_CONFIG.get(tipo, {}).copy()
     config["fecha"] = fecha if fecha else datetime.now().strftime("%Y%m%d")
     
-    # Añadimos la clave 'archivo' con el nombre final del CSV
-    if "nombre" in config:
-        config["archivo"] = f"{config['nombre']}_{config['fecha']}.csv"
+    base_nombre = config.get("nombre", tipo)
+    
+    if schema:
+        config["archivo"] = f"{schema}_{base_nombre}_{config['fecha']}.csv"
     else:
-        config["archivo"] = f"{tipo}_{config['fecha']}.csv"
+        config["archivo"] = f"{base_nombre}_{config['fecha']}.csv"
 
     return config
 

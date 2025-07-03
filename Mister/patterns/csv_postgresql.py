@@ -6,6 +6,7 @@ from psycopg2.extras import execute_values
 def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field=None, clave_conflicto=None, hash_field=None):
     try:
         df = pd.read_csv(ruta_csv)
+        log(f"Preparando carga para tabla {schema}.{tabla} con {len(df)} registros")
         df.columns = [limpiar_columna(col) for col in df.columns]
 
         if df.empty:

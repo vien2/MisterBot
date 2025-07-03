@@ -6,7 +6,8 @@ from utils import log
 import time
 import re
 
-def obtener_best_xi_jornadas_finalizadas(driver):
+def obtener_best_xi_jornadas_finalizadas(driver,schema=None):
+    _ = schema
     log("obtener_best_xi_jornadas_finalizadas: Inicio")
     datos = []
     wait = WebDriverWait(driver, 10)

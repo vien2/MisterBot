@@ -7,6 +7,7 @@ import psycopg2
 import hashlib
 import unicodedata
 import re
+import pandas as pd
 
 def añadir_hash(df, schema='dbo', tabla=''):
     if not tabla:
@@ -34,16 +35,11 @@ def añadir_hash(df, schema='dbo', tabla=''):
     df['hash'] = df.apply(calcular_hash, axis=1)
     return df
 
-def añadir_f_carga(lista_registros):
-    log(f"añadir_f_carga: Iniciamos a añadir f_carga")
-    f_carga_actual = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-    if isinstance(lista_registros, list):
-        for registro in lista_registros:
-            if isinstance(registro, dict):
-                registro["f_carga"] = f_carga_actual
-    log(f"añadir_f_carga: f_carga añadida")
-    return lista_registros
+def añadir_f_carga(df):
+    log("añadir_f_carga: Iniciamos a añadir f_carga")
+    df["f_carga"] = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+    log("añadir_f_carga: f_carga añadida")
+    return df
 
 def generar_nombre_archivo(config):
     """
@@ -128,7 +124,7 @@ def guardar_en_csv(datos_list, base_path, filename_config, fieldnames=None):
     :param fieldnames: Opcional, lista de columnas. Si es None, se infiere la unión de todas las claves.
     """
     os.makedirs(base_path, exist_ok=True)
-    nombre_archivo = generar_nombre_archivo(filename_config)
+    nombre_archivo = filename_config["archivo"]
     ruta_completa = os.path.join(base_path, nombre_archivo)
 
     if fieldnames is None:
@@ -165,10 +161,12 @@ def log(message):
 
 def leer_config_db(archivo='config.ini', seccion='postgresql'):
     """Lee la configuración de la base de datos desde config.ini"""
+    ruta_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), archivo)
     log(f"leer_config_db: Buscando config.ini en {os.path.abspath(archivo)}")
     parser = ConfigParser()
-    parser.read(archivo)
-    log(f"conexion_db: Archivos leídos: {parser.read(archivo)}")
+    archivos_leidos = parser.read(ruta_config)
+    log(f"conexion_db: Archivos leídos: {archivos_leidos}")
+
 
     if parser.has_section(seccion):
         return {param[0]: param[1] for param in parser.items(seccion)}
