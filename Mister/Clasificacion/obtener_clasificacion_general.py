@@ -4,7 +4,8 @@ from selenium.webdriver.support import expected_conditions as EC
 import re
 from utils import log
 
-def obtener_clasificacion_general(driver):
+def obtener_clasificacion_general(driver, schema=None):
+    _ = schema
     log("obtener_clasificacion_general: Inicio de la función")
 
     datos_usuarios = []

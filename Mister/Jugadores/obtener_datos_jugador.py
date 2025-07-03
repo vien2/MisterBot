@@ -19,7 +19,8 @@ def sesion_activa(driver):
     except NoSuchElementException:
         return True
 
-def obtener_urls_jugadores(driver):
+def obtener_urls_jugadores(driver,schema=None):
+    _ = schema
     log("obtener_urls_jugadores: Inicio")
 
     wait = WebDriverWait(driver, 2)
@@ -83,7 +84,8 @@ def obtener_urls_jugadores(driver):
     log(f"obtener_urls_jugadores: Total URLs formateadas: {len(datos_urls)}")
     return datos_urls
 
-def obtener_datos_jugador(driver):
+def obtener_datos_jugador(driver,schema=None):
+    _ = schema
     log("obtener_datos_jugador: Inicio de la función")
     datos_de_jugadores = []
     urls_jugadores = obtener_urls_desde_db()
@@ -201,7 +203,7 @@ def obtener_datos_jugador(driver):
 
 
 
-def obtener_datos_jornadas(driver):
+def obtener_datos_jornadas(driver, schema):
     log("obtener_datos_jornadas_inicial: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
@@ -222,7 +224,7 @@ def obtener_datos_jornadas(driver):
                 player_id = player_url.split("/players/")[1].split("/")[0]
 
                 try:
-                    cur.execute("SELECT ultima_jornada FROM dbo.progreso_jornadas WHERE id_jugador = %s", (player_id,))
+                    cur.execute(f"SELECT ultima_jornada FROM {schema}.progreso_jornadas WHERE id_jugador = %s", (player_id,))
                     resultado = cur.fetchone()
                     ultima_jornada = resultado[0] if resultado else 0
                 except Exception:
@@ -382,8 +384,8 @@ def obtener_datos_jornadas(driver):
 
                 if jornadas_insertadas:
                     nueva_jornada = max(jornadas_insertadas)
-                    cur.execute("""
-                        INSERT INTO dbo.progreso_jornadas(id_jugador, ultima_jornada)
+                    cur.execute(f"""
+                        INSERT INTO {schema}.progreso_jornadas(id_jugador, ultima_jornada)
                         VALUES (%s, %s)
                         ON CONFLICT (id_jugador)
                         DO UPDATE SET ultima_jornada = EXCLUDED.ultima_jornada
@@ -393,8 +395,8 @@ def obtener_datos_jornadas(driver):
                     jornadas_faltantes = jornadas_teoricas - set(jornadas_insertadas)
 
                     for j_faltante in jornadas_faltantes:
-                        cur.execute("""
-                            INSERT INTO dbo.progreso_jornadas_pendientes(id_jugador, jornada)
+                        cur.execute(f"""
+                            INSERT INTO {schema}.progreso_jornadas_pendientes(id_jugador, jornada)
                             VALUES (%s, %s)
                             ON CONFLICT DO NOTHING
                         """, (player_id, j_faltante))
@@ -407,7 +409,7 @@ def obtener_datos_jornadas(driver):
     return datos_jornadas
 
 
-def obtener_datos_jornadas_inicial(driver, max_jornada=34, salto=2):
+def obtener_datos_jornadas_inicial(driver, schema, max_jornada=34, salto=2):
     log("obtener_datos_jornadas_inicial: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
@@ -428,7 +430,7 @@ def obtener_datos_jornadas_inicial(driver, max_jornada=34, salto=2):
                 player_id = player_url.split("/players/")[1].split("/")[0]
 
                 try:
-                    cur.execute("SELECT ultima_jornada FROM dbo.progreso_jornadas WHERE id_jugador = %s", (player_id,))
+                    cur.execute(f"SELECT ultima_jornada FROM {schema}.progreso_jornadas WHERE id_jugador = %s", (player_id,))
                     resultado = cur.fetchone()
                     ultima_jornada = resultado[0] if resultado else 0
                 except Exception:
@@ -588,8 +590,8 @@ def obtener_datos_jornadas_inicial(driver, max_jornada=34, salto=2):
 
                 if jornadas_insertadas:
                     nueva_jornada = min(max(jornadas_insertadas), max_jornada)
-                    cur.execute("""
-                        INSERT INTO dbo.progreso_jornadas(id_jugador, ultima_jornada)
+                    cur.execute(f"""
+                        INSERT INTO {schema}.progreso_jornadas(id_jugador, ultima_jornada)
                         VALUES (%s, %s)
                         ON CONFLICT (id_jugador)
                         DO UPDATE SET ultima_jornada = EXCLUDED.ultima_jornada
@@ -602,7 +604,8 @@ def obtener_datos_jornadas_inicial(driver, max_jornada=34, salto=2):
     log(f"obtener_datos_jornadas_inicial: Finalización con {len(datos_jornadas)} registros procesados")
     return datos_jornadas
 
-def obtener_registros_transferencia(driver):
+def obtener_registros_transferencia(driver,schema=None):
+    _ = schema
     log("obtener_registros_transferencia: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
@@ -666,7 +669,8 @@ def obtener_registros_transferencia(driver):
     return todos_registros
 
 
-def obtener_puntos(driver):
+def obtener_puntos(driver,schema=None):
+    _ = schema
     log("obtener_puntos: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)
@@ -745,7 +749,8 @@ def obtener_puntos(driver):
     return todos_puntos
 
 
-def obtener_valores(driver):
+def obtener_valores(driver,schema=None):
+    _ = schema
     log("obtener_valores: Inicio de la función")
 
     wait = WebDriverWait(driver, 2)

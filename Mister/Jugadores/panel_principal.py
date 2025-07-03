@@ -1,7 +1,8 @@
 import time
 from selenium.webdriver.common.by import By
 
-def datos_tarjeta(driver):
+def datos_tarjeta(driver,schema=None):
+    _ = schema
 
     # Tiempo de espera para cargar contenido adicional (ajusta según la velocidad de carga de la página)
     time.sleep(2)

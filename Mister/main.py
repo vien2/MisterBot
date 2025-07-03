@@ -1,13 +1,15 @@
 import sys
 import os
+import json
+import pandas as pd
 from utils import (
-    log, guardar_en_csv, aplanar_datos,get_base_path_from_ini,
+    log, guardar_en_csv, aplanar_datos, get_base_path_from_ini,
     añadir_temporada, añadir_f_carga, añadir_hash, conexion_db
 )
 from configuracion import get_filename_config, get_funciones_disponibles
 from patterns.csv_postgresql import cargar_csv_postgresql
 from iniciar_sesion import iniciar_sesion
-import pandas as pd
+
 
 def ejecutar_proceso(id_load):
     log(f"Inicio de proceso para ID Load: {id_load}")
@@ -16,7 +18,7 @@ def ejecutar_proceso(id_load):
     with conexion_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT fichero as nombre_fichero, tabla, tipo_carga, "schema", incremental_field, clave_conflicto, usa_hash
+                SELECT fichero AS nombre_fichero, tabla, tipo_carga, "schema", incremental_field, clave_conflicto, usa_hash
                 FROM dbo.load 
                 WHERE idload = %s
             """, (id_load,))
@@ -34,25 +36,35 @@ def ejecutar_proceso(id_load):
         return
 
     log(f"Ejecutando extracción: {nombre_fichero}")
-    driver = iniciar_sesion()
+    driver = iniciar_sesion(schema=schema)
     funcion = FUNCIONES_DISPONIBLES[nombre_fichero]
 
-    # Ejecutar función y procesar datos
-    datos = funcion(driver)
+    # Ejecutar la función de scraping
+    datos = funcion(driver, schema=schema)
+
+    # Añadir temporada
     datos = añadir_temporada(datos)
+
+    # Convertimos a DataFrame para añadir hash si aplica
+    df = pd.DataFrame(datos)
     if usa_hash:
-        df = pd.DataFrame(datos)
         df = añadir_hash(df, schema=schema, tabla=tabla)
-        datos = df.to_dict(orient="records")  # opcional: vuelve a lista si lo necesitas
-    datos = añadir_f_carga(datos)
-    clave_conflicto = list(clave_conflicto) if clave_conflicto else None
+    df = añadir_f_carga(df)
 
-    filename_config = get_filename_config(nombre_fichero)
+    # Pasamos de nuevo a lista si la función final lo requiere
+    datos_lista = aplanar_datos(df.to_dict(orient="records"))
+
+    # Guardar CSV
+    filename_config = get_filename_config(nombre_fichero, schema=schema)
     ruta_csv = os.path.join(base_path, filename_config["archivo"])
-
-    datos_lista = aplanar_datos(datos)
     guardar_en_csv(datos_lista, base_path, filename_config)
 
+    # Clave conflicto como lista
+    if clave_conflicto:
+        if isinstance(clave_conflicto, str):
+            clave_conflicto = json.loads(clave_conflicto)
+
+    # Carga en PostgreSQL
     cargar_csv_postgresql(
         ruta_csv=ruta_csv,
         schema=schema,
@@ -65,6 +77,7 @@ def ejecutar_proceso(id_load):
 
     driver.quit()
     log("Proceso finalizado correctamente.")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

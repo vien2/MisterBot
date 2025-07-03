@@ -5,7 +5,8 @@ from selenium.common.exceptions import TimeoutException, StaleElementReferenceEx
 from collections import defaultdict
 from utils import log
 
-def obtener_clasificacion_jornada(driver):
+def obtener_clasificacion_jornada(driver,schema=None):
+    _ = schema
     log("obtener_clasificacion_jornada: Inicio de la función")
 
     datos_por_jornada = defaultdict(list)
