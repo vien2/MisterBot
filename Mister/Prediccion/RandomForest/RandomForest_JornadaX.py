@@ -1,11 +1,12 @@
 import pandas as pd
-import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
 from utils import conexion_db
+import matplotlib.pyplot as plt
+
+jornada_objetivo = 34
 
 # ------------------------ #
-# 1. Consultas a la BD
+# 1. Carga de datos
 # ------------------------ #
 
 query_partidos = """
@@ -43,23 +44,28 @@ WHERE jl.goles_local IS NOT NULL
 ORDER BY jl.jornada ASC
 """
 
-query_equipos_jugador = """
-SELECT DISTINCT id_jugador, equipo
-FROM chavalitos.v_datos_jugador
-WHERE temporada = '24/25'
-"""
+query_resultados = f"""
+    SELECT equipo_local, equipo_visitante,
+            CASE
+                WHEN goles_local > goles_visitante THEN '1'
+                WHEN goles_local = goles_visitante THEN 'X'
+                ELSE '2'
+            END AS resultado_real
+    FROM chavalitos.v_jornadas_liga
+    WHERE temporada = '24/25' AND jornada = {jornada_objetivo}
+    """
 
-# ------------------------ #
-# 2. Conexión y lectura
-# ------------------------ #
+query_jugadores = "SELECT * FROM chavalitos.v_datos_jornadas WHERE temporada = '24/25'"
+query_equipos_jugador = "SELECT DISTINCT id_jugador, equipo FROM chavalitos.v_datos_jugador WHERE temporada = '24/25'"
 
 with conexion_db() as conn:
-    df_partidos = pd.read_sql(query_partidos, conn)
-    df_jugadores = pd.read_sql("SELECT * FROM chavalitos.v_datos_jornadas WHERE temporada = '24/25'", conn)
+    df = pd.read_sql(query_partidos, conn)
+    df_resultados_reales = pd.read_sql(query_resultados, conn)
+    df_jugadores = pd.read_sql(query_jugadores, conn)
     df_equipos = pd.read_sql(query_equipos_jugador, conn)
 
 # ------------------------ #
-# 3. Procesar eventos
+# 2. Procesar eventos y agregar por equipo
 # ------------------------ #
 
 def extraer_evento(eventos, palabra):
@@ -74,10 +80,6 @@ eventos_binarios = [
 
 for evento in eventos_binarios:
     df_jugadores[evento.replace(' ', '_')] = df_jugadores['eventos'].apply(lambda x: extraer_evento(x, evento))
-
-# ------------------------ #
-# 4. Unir equipo y agrupar
-# ------------------------ #
 
 df_jugadores = df_jugadores.merge(df_equipos, on='id_jugador', how='left')
 
@@ -97,32 +99,28 @@ agg_stats = df_jugadores.groupby(['jornada', 'equipo']).agg({
     'asistencia': 'sum'
 }).reset_index()
 
-# ------------------------ #
-# 5. Renombrar y unir
-# ------------------------ #
-
 stats_local = agg_stats.copy()
 stats_local.columns = ['jornada'] + [f"{col}_local" for col in stats_local.columns[1:]]
+
 stats_visit = agg_stats.copy()
 stats_visit.columns = ['jornada'] + [f"{col}_visitante" for col in stats_visit.columns[1:]]
 
-df_full = df_partidos.copy()
-df_full = df_full.merge(stats_local, left_on=['jornada', 'equipo_local'], right_on=['jornada', 'equipo_local'], how='left')
-df_full = df_full.merge(stats_visit, left_on=['jornada', 'equipo_visitante'], right_on=['jornada', 'equipo_visitante'], how='left')
+df = df.merge(stats_local, left_on=['jornada', 'equipo_local'], right_on=['jornada', 'equipo_local'], how='left')
+df = df.merge(stats_visit, left_on=['jornada', 'equipo_visitante'], right_on=['jornada', 'equipo_visitante'], how='left')
 
 # ------------------------ #
-# 6. Variables adicionales
+# 3. Crear variables adicionales
 # ------------------------ #
 
-df_full['ratio_victorias_local'] = df_full['ganados_local'] / df_full['partidos_jugados_local']
-df_full['ratio_victorias_visitante'] = df_full['ganados_visitante'] / df_full['partidos_jugados_visitante']
-df_full['ppp_local'] = df_full['puntos_local'] / df_full['partidos_jugados_local']
-df_full['ppp_visitante'] = df_full['puntos_visitante'] / df_full['partidos_jugados_visitante']
-df_full['abs_dif_goles_local'] = df_full['dif_goles_local'].abs()
-df_full['abs_dif_goles_visitante'] = df_full['dif_goles_visitante'].abs()
+df['ratio_victorias_local'] = df['ganados_local'] / df['partidos_jugados_local']
+df['ratio_victorias_visitante'] = df['ganados_visitante'] / df['partidos_jugados_visitante']
+df['ppp_local'] = df['puntos_local'] / df['partidos_jugados_local']
+df['ppp_visitante'] = df['puntos_visitante'] / df['partidos_jugados_visitante']
+df['abs_dif_goles_local'] = df['dif_goles_local'].abs()
+df['abs_dif_goles_visitante'] = df['dif_goles_visitante'].abs()
 
 # ------------------------ #
-# 7. Variables del modelo
+# 4. Definir variables del modelo
 # ------------------------ #
 
 features = [
@@ -147,64 +145,56 @@ features = [
 ]
 
 # ------------------------ #
-# 8. Predicción por jornada
+# 5. Separar train y test
 # ------------------------ #
 
-resultados = []
+df_train = df[df['jornada'] < jornada_objetivo].copy()
+df_test = df[df['jornada'] == jornada_objetivo].copy()
 
-for jornada in sorted(df_full['jornada'].unique()):
-    df_train = df_full[df_full['jornada'] < jornada]
-    df_test = df_full[df_full['jornada'] == jornada]
-    if df_train.empty or df_test.empty:
-        continue
-
+if df_test.empty:
+    print(f"⚠️ No hay partidos registrados para la jornada {jornada_objetivo}.")
+else:
     X_train = df_train[features]
     y_train = df_train['resultado_1x2']
     X_test = df_test[features]
 
     model = RandomForestClassifier(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
+
     y_pred = model.predict(X_test)
+    y_proba = model.predict_proba(X_test)
+    confianza_pred = y_proba.max(axis=1)
 
-    df_pred = df_test.copy()
-    df_pred['prediccion_1x2'] = y_pred
-    resultados.append(df_pred)
+    df_test['prediccion_1x2'] = y_pred
+    df_test['confianza'] = confianza_pred
 
-df_all_preds = pd.concat(resultados, ignore_index=True)
-df_all_preds['acierto'] = df_all_preds['prediccion_1x2'] == df_all_preds['resultado_1x2']
+    print(f"\n🔮 Predicción para jornada {jornada_objetivo} (con confianza):\n")
+    for _, row in df_test.iterrows():
+        print(f" - {row['equipo_local']} vs {row['equipo_visitante']}: {row['prediccion_1x2']} "
+              f"(confianza: {row['confianza']:.2%})")
 
-# ------------------------ #
-# 9. Resultados y evaluación
-# ------------------------ #
+    # ------------------------ #
+    # 6. Evaluar y graficar
+    # ------------------------ #
 
-pd.set_option('display.max_rows', None)
-pd.set_option('display.max_columns', None)
-pd.set_option('display.width', None)
-pd.set_option('display.max_colwidth', None)
+    df_test = df_test.merge(df_resultados_reales, on=['equipo_local', 'equipo_visitante'], how='left')
+    df_test['acierto'] = df_test['prediccion_1x2'] == df_test['resultado_real']
 
-print("\n📊 Predicciones completas jornada a jornada:")
-print(df_all_preds[['jornada', 'equipo_local', 'equipo_visitante', 'resultado_1x2', 'prediccion_1x2', 'acierto']])
+    partidos = df_test['equipo_local'] + ' vs ' + df_test['equipo_visitante']
+    colores = df_test['acierto'].map({True: 'green', False: 'red'})
 
-precision_global = df_all_preds['acierto'].mean()
-print(f"\n✅ Precisión global del modelo: {precision_global:.2%}")
+    plt.figure(figsize=(12, 6))
+    bars = plt.bar(partidos, df_test['confianza'], color=colores)
+    plt.xticks(rotation=45, ha='right')
+    plt.ylim(0, 1)
+    plt.ylabel("Confianza")
+    plt.title(f"Confianza y aciertos – Jornada {jornada_objetivo}")
 
-precision_por_jornada = df_all_preds.groupby('jornada')['acierto'].mean().reset_index()
-precision_por_jornada = precision_por_jornada.sort_values(by='acierto', ascending=False)
+    for bar, conf in zip(bars, df_test['confianza']):
+        plt.text(bar.get_x() + bar.get_width() / 2, conf + 0.01, f"{conf:.0%}", ha='center', fontsize=8)
 
-print("\n📈 Precisión por jornada:")
-print(precision_por_jornada)
+    plt.tight_layout()
+    plt.show()
 
-# ------------------------ #
-# 10. Importancia de variables (último modelo)
-# ------------------------ #
-
-importancias = model.feature_importances_
-importancias_df = pd.DataFrame({'feature': features, 'importancia': importancias})
-importancias_df = importancias_df.sort_values(by='importancia', ascending=True)
-
-plt.figure(figsize=(10, 6))
-plt.barh(importancias_df['feature'], importancias_df['importancia'])
-plt.xlabel("Importancia")
-plt.title("📊 Importancia de cada variable en el último modelo")
-plt.tight_layout()
-plt.show()
+    precision = df_test['acierto'].mean()
+    print(f"\n✅ Precisión del modelo en jornada {jornada_objetivo}: {precision:.2%}")
