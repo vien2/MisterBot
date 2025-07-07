@@ -3,9 +3,9 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from utils import conexion_db
 import matplotlib.pyplot as plt
+from xgboost import XGBClassifier
+from utils import conexion_db
 
 jornada_objetivo = 34
 
@@ -49,15 +49,15 @@ ORDER BY jl.jornada ASC
 """
 
 query_resultados = f"""
-    SELECT equipo_local, equipo_visitante,
-            CASE
-                WHEN goles_local > goles_visitante THEN '1'
-                WHEN goles_local = goles_visitante THEN 'X'
-                ELSE '2'
-            END AS resultado_real
-    FROM chavalitos.v_jornadas_liga
-    WHERE temporada = '24/25' AND jornada = {jornada_objetivo}
-    """
+SELECT equipo_local, equipo_visitante,
+       CASE
+           WHEN goles_local > goles_visitante THEN '1'
+           WHEN goles_local = goles_visitante THEN 'X'
+           ELSE '2'
+       END AS resultado_real
+FROM chavalitos.v_jornadas_liga
+WHERE temporada = '24/25' AND jornada = {jornada_objetivo}
+"""
 
 query_jugadores = "SELECT * FROM chavalitos.v_datos_jornadas WHERE temporada = '24/25'"
 query_equipos_jugador = "SELECT DISTINCT id_jugador, equipo FROM chavalitos.v_datos_jugador WHERE temporada = '24/25'"
@@ -69,7 +69,7 @@ with conexion_db() as conn:
     df_equipos = pd.read_sql(query_equipos_jugador, conn)
 
 # ------------------------ #
-# 2. Procesar eventos y agregar por equipo
+# 2. Procesar eventos
 # ------------------------ #
 
 def extraer_evento(eventos, palabra):
@@ -109,11 +109,11 @@ stats_local.columns = ['jornada'] + [f"{col}_local" for col in stats_local.colum
 stats_visit = agg_stats.copy()
 stats_visit.columns = ['jornada'] + [f"{col}_visitante" for col in stats_visit.columns[1:]]
 
-df = df.merge(stats_local, left_on=['jornada', 'equipo_local'], right_on=['jornada', 'equipo_local'], how='left')
-df = df.merge(stats_visit, left_on=['jornada', 'equipo_visitante'], right_on=['jornada', 'equipo_visitante'], how='left')
+df = df.merge(stats_local, on=['jornada', 'equipo_local'], how='left')
+df = df.merge(stats_visit, on=['jornada', 'equipo_visitante'], how='left')
 
 # ------------------------ #
-# 3. Crear variables adicionales
+# 3. Features adicionales
 # ------------------------ #
 
 df['ratio_victorias_local'] = df['ganados_local'] / df['partidos_jugados_local']
@@ -124,7 +124,7 @@ df['abs_dif_goles_local'] = df['dif_goles_local'].abs()
 df['abs_dif_goles_visitante'] = df['dif_goles_visitante'].abs()
 
 # ------------------------ #
-# 4. Definir variables del modelo
+# 4. Variables del modelo
 # ------------------------ #
 
 features = [
@@ -132,7 +132,6 @@ features = [
     'posicion_visitante', 'puntos_visitante', 'ganados_visitante', 'empatados_visitante', 'perdidos_visitante', 'dif_goles_visitante',
     'ratio_victorias_local', 'ratio_victorias_visitante', 'ppp_local', 'ppp_visitante',
     'abs_dif_goles_local', 'abs_dif_goles_visitante',
-
     'goles_esperados_local', 'goles_esperados_visitante',
     'asistencias_esperadas_local', 'asistencias_esperadas_visitante',
     'pases_clave_local', 'pases_clave_visitante',
@@ -149,7 +148,7 @@ features = [
 ]
 
 # ------------------------ #
-# 5. Separar train y test
+# 5. Entrenamiento y predicción
 # ------------------------ #
 
 df_train = df[df['jornada'] < jornada_objetivo].copy()
@@ -162,25 +161,28 @@ else:
     y_train = df_train['resultado_1x2']
     X_test = df_test[features]
 
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
+    # Mapear etiquetas a enteros
+    mapa_clases = {'1': 0, 'X': 1, '2': 2}
+    inv_mapa_clases = {v: k for k, v in mapa_clases.items()}
+    y_train_encoded = y_train.map(mapa_clases)
 
-    y_pred = model.predict(X_test)
+    model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', random_state=42)
+    model.fit(X_train, y_train_encoded)
+
+    y_pred_encoded = model.predict(X_test)
     y_proba = model.predict_proba(X_test)
     confianza_pred = y_proba.max(axis=1)
 
-    df_test['prediccion_1x2'] = y_pred
+    # ✅ Mapear resultados de vuelta a texto
+    df_test['prediccion_1x2'] = [inv_mapa_clases[int(y)] for y in y_pred_encoded]
     df_test['confianza'] = confianza_pred
 
-    print(f"\n🔮 Predicción para jornada {jornada_objetivo} (con confianza):\n")
+    # Mostrar resultados
+    print(f"\n🔮 Predicción para jornada {jornada_objetivo} con XGBoost:\n")
     for _, row in df_test.iterrows():
-        print(f" - {row['equipo_local']} vs {row['equipo_visitante']}: {row['prediccion_1x2']} "
-              f"(confianza: {row['confianza']:.2%})")
+        print(f" - {row['equipo_local']} vs {row['equipo_visitante']}: {row['prediccion_1x2']} (confianza: {row['confianza']:.2%})")
 
-    # ------------------------ #
-    # 6. Evaluar y graficar
-    # ------------------------ #
-
+    # Evaluación y visualización
     df_test = df_test.merge(df_resultados_reales, on=['equipo_local', 'equipo_visitante'], how='left')
     df_test['acierto'] = df_test['prediccion_1x2'] == df_test['resultado_real']
 
@@ -192,7 +194,7 @@ else:
     plt.xticks(rotation=45, ha='right')
     plt.ylim(0, 1)
     plt.ylabel("Confianza")
-    plt.title(f"Confianza y aciertos – Jornada {jornada_objetivo}")
+    plt.title(f"Confianza y aciertos – Jornada {jornada_objetivo} (XGBoost)")
 
     for bar, conf in zip(bars, df_test['confianza']):
         plt.text(bar.get_x() + bar.get_width() / 2, conf + 0.01, f"{conf:.0%}", ha='center', fontsize=8)
@@ -201,4 +203,4 @@ else:
     plt.show()
 
     precision = df_test['acierto'].mean()
-    print(f"\n✅ Precisión del modelo en jornada {jornada_objetivo}: {precision:.2%}")
+    print(f"\n✅ Precisión XGBoost en jornada {jornada_objetivo}: {precision:.2%}")
