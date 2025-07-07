@@ -3,11 +3,9 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
 from utils import conexion_db
 import matplotlib.pyplot as plt
-
-jornada_objetivo = 34
 
 # ------------------------ #
 # 1. Carga de datos
@@ -48,23 +46,11 @@ WHERE jl.goles_local IS NOT NULL
 ORDER BY jl.jornada ASC
 """
 
-query_resultados = f"""
-    SELECT equipo_local, equipo_visitante,
-            CASE
-                WHEN goles_local > goles_visitante THEN '1'
-                WHEN goles_local = goles_visitante THEN 'X'
-                ELSE '2'
-            END AS resultado_real
-    FROM chavalitos.v_jornadas_liga
-    WHERE temporada = '24/25' AND jornada = {jornada_objetivo}
-    """
-
 query_jugadores = "SELECT * FROM chavalitos.v_datos_jornadas WHERE temporada = '24/25'"
 query_equipos_jugador = "SELECT DISTINCT id_jugador, equipo FROM chavalitos.v_datos_jugador WHERE temporada = '24/25'"
 
 with conexion_db() as conn:
-    df = pd.read_sql(query_partidos, conn)
-    df_resultados_reales = pd.read_sql(query_resultados, conn)
+    df_partidos = pd.read_sql(query_partidos, conn)
     df_jugadores = pd.read_sql(query_jugadores, conn)
     df_equipos = pd.read_sql(query_equipos_jugador, conn)
 
@@ -109,11 +95,12 @@ stats_local.columns = ['jornada'] + [f"{col}_local" for col in stats_local.colum
 stats_visit = agg_stats.copy()
 stats_visit.columns = ['jornada'] + [f"{col}_visitante" for col in stats_visit.columns[1:]]
 
+df = df_partidos.copy()
 df = df.merge(stats_local, left_on=['jornada', 'equipo_local'], right_on=['jornada', 'equipo_local'], how='left')
 df = df.merge(stats_visit, left_on=['jornada', 'equipo_visitante'], right_on=['jornada', 'equipo_visitante'], how='left')
 
 # ------------------------ #
-# 3. Crear variables adicionales
+# 3. Variables adicionales
 # ------------------------ #
 
 df['ratio_victorias_local'] = df['ganados_local'] / df['partidos_jugados_local']
@@ -124,7 +111,7 @@ df['abs_dif_goles_local'] = df['dif_goles_local'].abs()
 df['abs_dif_goles_visitante'] = df['dif_goles_visitante'].abs()
 
 # ------------------------ #
-# 4. Definir variables del modelo
+# 4. Features
 # ------------------------ #
 
 features = [
@@ -132,7 +119,6 @@ features = [
     'posicion_visitante', 'puntos_visitante', 'ganados_visitante', 'empatados_visitante', 'perdidos_visitante', 'dif_goles_visitante',
     'ratio_victorias_local', 'ratio_victorias_visitante', 'ppp_local', 'ppp_visitante',
     'abs_dif_goles_local', 'abs_dif_goles_visitante',
-
     'goles_esperados_local', 'goles_esperados_visitante',
     'asistencias_esperadas_local', 'asistencias_esperadas_visitante',
     'pases_clave_local', 'pases_clave_visitante',
@@ -149,56 +135,53 @@ features = [
 ]
 
 # ------------------------ #
-# 5. Separar train y test
+# 5. Simulacion jornada a jornada
 # ------------------------ #
 
-df_train = df[df['jornada'] < jornada_objetivo].copy()
-df_test = df[df['jornada'] == jornada_objetivo].copy()
+mapa_clases = {'1': 0, 'X': 1, '2': 2}
+inv_mapa = {v: k for k, v in mapa_clases.items()}
 
-if df_test.empty:
-    print(f"⚠️ No hay partidos registrados para la jornada {jornada_objetivo}.")
-else:
+resultados = []
+
+for jornada in sorted(df['jornada'].unique()):
+    df_train = df[df['jornada'] < jornada].copy()
+    df_test = df[df['jornada'] == jornada].copy()
+
+    if df_train.empty or df_test.empty:
+        continue
+
     X_train = df_train[features]
-    y_train = df_train['resultado_1x2']
+    y_train = df_train['resultado_1x2'].map(mapa_clases)
     X_test = df_test[features]
 
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', random_state=42)
     model.fit(X_train, y_train)
 
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)
-    confianza_pred = y_proba.max(axis=1)
+    df_test['prediccion_1x2'] = model.predict(X_test)
+    df_test['prediccion_1x2'] = df_test['prediccion_1x2'].map(inv_mapa)
+    df_test['confianza'] = model.predict_proba(X_test).max(axis=1)
+    df_test['acierto'] = df_test['prediccion_1x2'] == df_test['resultado_1x2']
 
-    df_test['prediccion_1x2'] = y_pred
-    df_test['confianza'] = confianza_pred
+    resultados.append(df_test)
 
-    print(f"\n🔮 Predicción para jornada {jornada_objetivo} (con confianza):\n")
-    for _, row in df_test.iterrows():
-        print(f" - {row['equipo_local']} vs {row['equipo_visitante']}: {row['prediccion_1x2']} "
-              f"(confianza: {row['confianza']:.2%})")
+# ------------------------ #
+# 6. Evaluación
+# ------------------------ #
 
-    # ------------------------ #
-    # 6. Evaluar y graficar
-    # ------------------------ #
+df_preds = pd.concat(resultados, ignore_index=True)
 
-    df_test = df_test.merge(df_resultados_reales, on=['equipo_local', 'equipo_visitante'], how='left')
-    df_test['acierto'] = df_test['prediccion_1x2'] == df_test['resultado_real']
+precision_total = df_preds['acierto'].mean()
+print(f"\n✅ Precisión total XGBoost en simulación: {precision_total:.2%}")
 
-    partidos = df_test['equipo_local'] + ' vs ' + df_test['equipo_visitante']
-    colores = df_test['acierto'].map({True: 'green', False: 'red'})
+precision_por_jornada = df_preds.groupby('jornada')['acierto'].mean()
+print("\n📊 Precisión por jornada:")
+print(precision_por_jornada)
 
-    plt.figure(figsize=(12, 6))
-    bars = plt.bar(partidos, df_test['confianza'], color=colores)
-    plt.xticks(rotation=45, ha='right')
-    plt.ylim(0, 1)
-    plt.ylabel("Confianza")
-    plt.title(f"Confianza y aciertos – Jornada {jornada_objetivo}")
-
-    for bar, conf in zip(bars, df_test['confianza']):
-        plt.text(bar.get_x() + bar.get_width() / 2, conf + 0.01, f"{conf:.0%}", ha='center', fontsize=8)
-
-    plt.tight_layout()
-    plt.show()
-
-    precision = df_test['acierto'].mean()
-    print(f"\n✅ Precisión del modelo en jornada {jornada_objetivo}: {precision:.2%}")
+plt.figure(figsize=(12, 6))
+plt.plot(precision_por_jornada.index, precision_por_jornada.values, marker='o')
+plt.xlabel("Jornada")
+plt.ylabel("Precisión")
+plt.title("📊 Evolución precisión jornada a jornada (XGBoost)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()

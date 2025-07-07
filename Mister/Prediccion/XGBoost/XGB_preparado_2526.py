@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
 from utils import conexion_db
 from patterns.df_postgresql import cargar_dataframe_postgresql
 
@@ -12,7 +12,15 @@ from patterns.df_postgresql import cargar_dataframe_postgresql
 # ------------------------ #
 
 temporada_objetivo = '25/26'
-mejor_params = {'n_estimators': 100, 'min_samples_leaf': 3, 'max_depth': None}
+mejor_params = {
+    'n_estimators': 200,
+    'max_depth': 6,
+    'min_child_weight': 3,
+    'learning_rate': 0.1,
+    'use_label_encoder': False,
+    'eval_metric': 'mlogloss',
+    'random_state': 42
+}
 
 # ------------------------ #
 # 1. Consultar datos base
@@ -154,15 +162,17 @@ features = [col for col in df_partidos.columns if any(metric in col for metric i
 ])]
 
 X_train = df_partidos[features]
-y_train = df_partidos['resultado_1x2']
+y_train = df_partidos['resultado_1x2'].map({'1': 0, 'X': 1, '2': 2})
 X_test = df_pred_jornada[features]
 
-model = RandomForestClassifier(**mejor_params, random_state=42)
+model = XGBClassifier(**mejor_params)
 model.fit(X_train, y_train)
-y_pred = model.predict(X_test)
-y_proba = model.predict_proba(X_test).max(axis=1)
 
-df_pred_jornada['prediccion_1x2'] = y_pred
+y_pred_encoded = model.predict(X_test)
+y_proba = model.predict_proba(X_test).max(axis=1)
+inv_mapa = {0: '1', 1: 'X', 2: '2'}
+
+df_pred_jornada['prediccion_1x2'] = pd.Series(y_pred_encoded).map(inv_mapa)
 df_pred_jornada['confianza'] = y_proba
 
 # ------------------------ #
@@ -174,16 +184,15 @@ for _, row in df_pred_jornada.iterrows():
     print(f" - {row['equipo_local']} vs {row['equipo_visitante']}: {row['prediccion_1x2']} "
           f"(confianza: {row['confianza']:.2%})")
 
-
 # ------------------------ #
 # 7. Guardar en PostgreSQL
 # ------------------------ #
 
 df_output = df_pred_jornada[['jornada', 'equipo_local', 'equipo_visitante', 'prediccion_1x2', 'confianza']].copy()
-df_output['modelo'] = 'RandomForest_best'
+df_output['modelo'] = 'XGBoost_best'
 df_output['temporada'] = temporada_objetivo
 
-# Orden final de columnas
+# Reordenar columnas por claridad
 df_output = df_output[['temporada', 'jornada', 'equipo_local', 'equipo_visitante', 'modelo', 'prediccion_1x2', 'confianza']]
 
 cargar_dataframe_postgresql(
@@ -192,3 +201,4 @@ cargar_dataframe_postgresql(
     tabla='predicciones_jornada',
     clave_conflicto=['temporada', 'jornada', 'equipo_local', 'equipo_visitante', 'modelo']
 )
+
