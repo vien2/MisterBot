@@ -4,3 +4,4 @@ __pycache__/
 data/
 log/
 grafico_puntos_por_jornada.html
+Querys.sql
