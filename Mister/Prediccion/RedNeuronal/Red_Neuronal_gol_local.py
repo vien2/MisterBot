@@ -1,4 +1,4 @@
-# MisterBot - Walk-forward sistema 1X2 con datos de jugadores
+# MisterBot - Walk-forward predicción Gol Local (marcar sí/no)
 
 import sys
 import os
@@ -19,12 +19,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from patterns.df_postgresql import cargar_dataframe_postgresql
 
+
+# Mostrar todas las filas sin truncar
+pd.set_option('display.max_rows', None)
 # ------------------------ #
 # CONFIGURACIÓN
 # ------------------------ #
 temporada_objetivo = '24/25'
-threshold_1 = 0.42
-threshold_2 = 0.46
+umbral_prediccion = 0.65  # Mayor umbral para evitar falsos positivos
 
 # ------------------------ #
 # Cargar datos
@@ -49,12 +51,7 @@ SELECT
     ev.partidos_perdidos AS perdidos_visitante,
     ev.diferencia_goles AS dif_goles_visitante,
     jl.goles_local,
-    jl.goles_visitante,
-    CASE
-        WHEN jl.goles_local > jl.goles_visitante THEN '1'
-        WHEN jl.goles_local = jl.goles_visitante THEN 'X'
-        ELSE '2'
-    END AS resultado_1x2
+    jl.goles_visitante
 FROM chavalitos.v_jornadas_liga jl
 LEFT JOIN chavalitos.v_datos_laliga el ON el.equipo = jl.equipo_local AND el.temporada = jl.temporada
 LEFT JOIN chavalitos.v_datos_laliga ev ON ev.equipo = jl.equipo_visitante AND ev.temporada = jl.temporada
@@ -143,6 +140,7 @@ def crear_modelo(input_dim):
 # ------------------------ #
 # Entrenamiento walk-forward
 # ------------------------ #
+df['target_gol_local'] = (df['goles_local'] > 0).astype(int)
 resultados = []
 
 for jornada in sorted(df['jornada'].unique()):
@@ -158,34 +156,23 @@ for jornada in sorted(df['jornada'].unique()):
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # Modelo 1 vs No1
-    y_train_1 = (df_train['resultado_1x2'] == '1').astype(int)
-    y_test_true = df_test['resultado_1x2']
-    model_1 = crear_modelo(X_train.shape[1])
-    w1 = compute_class_weight('balanced', classes=np.array([0, 1]), y=y_train_1)
-    model_1.fit(X_train_scaled, y_train_1, epochs=40, batch_size=16, verbose=0, class_weight={0: w1[0], 1: w1[1]})
-    proba_1 = model_1.predict(X_test_scaled, verbose=0).flatten()
+    y_train = df_train['target_gol_local']
+    y_test_true = df_test['target_gol_local']
+    model = crear_modelo(X_train.shape[1])
 
-    # Modelo X vs 2
-    y_train_x2 = df_train[df_train['resultado_1x2'].isin(['X', '2'])].copy()
-    y_train_x2['target_x2'] = (y_train_x2['resultado_1x2'] == '2').astype(int)
-    model_2 = crear_modelo(X_train.shape[1])
-    w2 = compute_class_weight('balanced', classes=np.array([0, 1]), y=y_train_x2['target_x2'])
-    y_train_bin = df_train['resultado_1x2'].map({'X': 0, '2': 1}).fillna(0).astype(int)
-    model_2.fit(X_train_scaled, y_train_bin, epochs=40, batch_size=16, verbose=0, class_weight={0: w2[0], 1: w2[1]})
-    proba_2 = model_2.predict(X_test_scaled, verbose=0).flatten()
+    if set(y_train.unique()) == {0, 1}:
+        w = compute_class_weight('balanced', classes=np.array([0, 1]), y=y_train)
+        class_weight = {0: w[0], 1: w[1]}
+    else:
+        class_weight = None
 
-    pred = []
-    for i in range(len(proba_1)):
-        if proba_1[i] >= threshold_1:
-            pred.append('1')
-        else:
-            pred.append('2' if proba_2[i] >= threshold_2 else 'X')
+    model.fit(X_train_scaled, y_train, epochs=40, batch_size=16, verbose=0, class_weight=class_weight)
+    proba = model.predict(X_test_scaled, verbose=0).flatten()
+    pred = (proba >= umbral_prediccion).astype(int)
 
     df_test = df_test.copy()
-    df_test['pred_1x2'] = pred
-    df_test['proba_1'] = proba_1
-    df_test['proba_2'] = proba_2
+    df_test['pred_gol_local'] = pred
+    df_test['proba_gol_local'] = proba
     df_test['temporada'] = temporada_objetivo
     resultados.append(df_test)
 
@@ -193,55 +180,63 @@ for jornada in sorted(df['jornada'].unique()):
 # Evaluación final
 # ------------------------ #
 df_final = pd.concat(resultados, ignore_index=True)
-acc = accuracy_score(df_final['resultado_1x2'], df_final['pred_1x2'])
-print(f"\n✅ Precisión global final 1X2 (walk-forward): {acc:.2%}")
+acc = accuracy_score(df_final['target_gol_local'], df_final['pred_gol_local'])
+print(f"\n✅ Precisión global Gol Local (walk-forward): {acc:.2%}")
 
-print("\n📊 Clasificación por clase:")
-print(classification_report(df_final['resultado_1x2'], df_final['pred_1x2'], digits=4))
+print("\n📊 Clasificación:")
+print(classification_report(df_final['target_gol_local'], df_final['pred_gol_local'], digits=4))
 
-cm = confusion_matrix(df_final['resultado_1x2'], df_final['pred_1x2'], labels=['1', 'X', '2'])
-sns.heatmap(cm, annot=True, fmt='d', cmap='PuBu', xticklabels=['1', 'X', '2'], yticklabels=['1', 'X', '2'])
-plt.title("Matriz de confusión final (1X2) - Walk Forward")
+cm = confusion_matrix(df_final['target_gol_local'], df_final['pred_gol_local'], labels=[0, 1])
+sns.heatmap(cm, annot=True, fmt='d', cmap='YlGnBu', xticklabels=['No Gol', 'Gol'], yticklabels=['No Gol', 'Gol'])
+plt.title("Matriz de confusión final - Gol Local")
 plt.xlabel("Predicción")
 plt.ylabel("Real")
 plt.tight_layout()
 plt.show()
 
 # ------------------------ #
+# Recomendaciones de apuesta por alta confianza
+# ------------------------ #
+print("\n🎯 Partidos recomendados para apostar por gol local (confianza >= 0.80):")
+recomendados = df_final[(df_final['pred_gol_local'] == 1) & (df_final['proba_gol_local'] >= 0.8)]
+print(recomendados[['jornada', 'equipo_local', 'equipo_visitante', 'proba_gol_local']].sort_values(by='proba_gol_local', ascending=False))
+
+# ------------------------ #
 # 6. Guardar en PostgreSQL
 # ------------------------ #
 
-# Asegúrate de tener estas columnas disponibles en df_final
 df_output = df_final[[
     'temporada', 'jornada', 'equipo_local', 'equipo_visitante'
 ]].copy()
 
-df_output['modelo'] = 'Neuronal_1X2'
-df_output['prediccion_1x2'] = df_final['pred_1x2']
-df_output['confianza'] = df_final[['proba_1', 'proba_2']].max(axis=1)
+df_output['modelo'] = 'Neuronal_Gol_Local'
+df_output['prediccion'] = df_final['pred_gol_local']
+df_output['probabilidad'] = df_final['proba_gol_local']
+df_output['prediccion'] = df_output['prediccion'].astype(bool)
 
 cargar_dataframe_postgresql(
     df_output,
     schema='dbo',
-    tabla='predicciones_jornada',
+    tabla='predicciones_binarias',
     clave_conflicto=['temporada', 'jornada', 'equipo_local', 'equipo_visitante', 'modelo']
 )
 
+
 # ------------------------ #
-# Calibración de probabilidad (1X2)
+# Calibración de probabilidad
 # ------------------------ #
-print("\n📈 Curva de calibración - Predicción '1'")
-y_true = (df_final['resultado_1x2'] == '1').astype(int)
-y_proba = df_final['proba_1']
+print("\n📈 Curva de calibración - Gol Local")
+y_true = df_final['target_gol_local']
+y_proba = df_final['proba_gol_local']
 
 fraction_of_positives, mean_predicted_value = calibration_curve(y_true, y_proba, n_bins=10, strategy='uniform')
 
 plt.figure(figsize=(6, 6))
-plt.plot(mean_predicted_value, fraction_of_positives, marker='o', label='Modelo (1 vs No1)')
+plt.plot(mean_predicted_value, fraction_of_positives, marker='o', label='Modelo')
 plt.plot([0, 1], [0, 1], linestyle='--', label='Perfecto')
-plt.xlabel('Probabilidad media predicha (clase 1)')
+plt.xlabel('Probabilidad media predicha')
 plt.ylabel('Fracción de positivos reales')
-plt.title('Curva de calibración - Clase 1 (1X2)')
+plt.title('Curva de calibración - Gol Local')
 plt.legend()
 plt.grid(True)
 plt.tight_layout()
