@@ -9,11 +9,12 @@ def obtener_clasificacion_general(driver, schema=None):
     log("obtener_clasificacion_general: Inicio de la función")
 
     datos_usuarios = []
-    wait = WebDriverWait(driver, 2)
+    wait = WebDriverWait(driver, 5)
 
+    # --- Ir a la pestaña Tabla ---
     try:
         enlace_tabla = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Tabla')]/parent::li/a")
+            (By.XPATH, "//ul[@class='menu']//li[@data-pag='standings']/a")
         ))
         enlace_tabla.click()
         log("obtener_clasificacion_general: Enlace 'Tabla' clickeado")
@@ -23,15 +24,26 @@ def obtener_clasificacion_general(driver, schema=None):
 
     driver.implicitly_wait(2)
 
+    # --- Pulsar botón General ---
     try:
-        tabs = driver.find_elements(By.XPATH, '//div[@class="tabs tabs-round tabs-standings"]/button')
-        tabs[0].click()
-        log("obtener_clasificacion_general: Pestaña 'Clasificación general' clickeada")
+        boton_general = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[@class='tabs segment tabs-standings']//button[@data-tab='total']")
+        ))
+        boton_general.click()
+        log("obtener_clasificacion_general: Pestaña 'General' clickeada")
     except Exception as e:
-        log(f"obtener_clasificacion_general: Error al hacer clic en la pestaña de clasificación: {e}")
+        log(f"obtener_clasificacion_general: Error al hacer clic en la pestaña General: {e}")
         return []
 
-    general_standings = driver.find_elements(By.XPATH, '//div[@class="panel panel-total"]//li')
+    # --- Extraer elementos de la clasificación ---
+    try:
+        general_standings = wait.until(
+            EC.presence_of_all_elements_located((By.XPATH, '//div[@class="panel panel-total"]//li'))
+        )
+    except Exception as e:
+        log(f"obtener_clasificacion_general: No se encontraron elementos de clasificación: {e}")
+        return []
+
     log(f"obtener_clasificacion_general: {len(general_standings)} elementos encontrados en la clasificación")
 
     for item in general_standings:
@@ -45,7 +57,7 @@ def obtener_clasificacion_general(driver, schema=None):
             puntos_match = re.search(r"\d[\d.]*", points_text)
             puntos = puntos_match.group(0).replace(".", "") if puntos_match else "0"
 
-            # Extraer jugado y valor usando textContent
+            # Extraer jugadores y valor total
             played_element = item.find_element(By.CLASS_NAME, 'played')
             played_text = played_element.get_attribute("textContent").strip()
             partes = [x.strip() for x in played_text.split("·")]
@@ -66,3 +78,4 @@ def obtener_clasificacion_general(driver, schema=None):
 
     log("obtener_clasificacion_general: Finalización exitosa de la función")
     return datos_usuarios
+

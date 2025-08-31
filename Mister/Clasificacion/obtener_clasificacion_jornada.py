@@ -4,92 +4,85 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, NoSuchWindowException,NoSuchElementException
 from collections import defaultdict
 from utils import log
+import re,time
 
-def obtener_clasificacion_jornada(driver,schema=None):
+def obtener_clasificacion_jornada(driver, schema=None):
     _ = schema
     log("obtener_clasificacion_jornada: Inicio de la función")
 
-    datos_por_jornada = defaultdict(list)
     datos_jornadas = []
     wait = WebDriverWait(driver, 10)
 
+    # --- Ir a la pestaña Tabla ---
     try:
-        enlace_tabla = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Tabla')]/parent::li/a")))
+        enlace_tabla = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//ul[@class='menu']//li[@data-pag='standings']/a")
+        ))
         enlace_tabla.click()
         log("obtener_clasificacion_jornada: Enlace 'Tabla' clickeado")
     except Exception as e:
         log(f"obtener_clasificacion_jornada: Error al hacer clic en el enlace 'Tabla': {e}")
-        return datos_por_jornada
+        return []
 
+    # --- Activar pestaña Jornada ---
     try:
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Jornada')]"))).click()
+        boton_jornada = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[@class='tabs segment tabs-standings']//button[@data-tab='gameweek']")
+        ))
+        boton_jornada.click()
         log("obtener_clasificacion_jornada: Pestaña 'Jornada' clickeada")
     except Exception as e:
         log(f"obtener_clasificacion_jornada: Error al hacer clic en la pestaña 'Jornada': {e}")
-        return datos_por_jornada
+        return []
 
-    for i in range(1, 39):  # Asumiendo 38 jornadas
+    # --- Obtener las jornadas disponibles ---
+    enlaces = wait.until(EC.presence_of_all_elements_located(
+        (By.CSS_SELECTOR, "div.gameweek-selector-inline a")
+    ))
+    jornadas_disponibles = [e.text.strip() for e in enlaces if e.text.strip().startswith("J")]
+
+    log(f"obtener_clasificacion_jornada: Jornadas disponibles detectadas: {jornadas_disponibles}")
+
+    for jornada_text in jornadas_disponibles:
         try:
-            log(f"obtener_clasificacion_jornada: Procesando Jornada {i}")
+            jornada_num = re.search(r"J(\d+)", jornada_text).group(1)
 
-            selector_jornada = f'//div[@class="top"]/select/option[contains(text(), "Jornada {i}")]'
-            try:
-                wait.until(EC.element_to_be_clickable((By.XPATH, selector_jornada))).click()
-                log(f"obtener_clasificacion_jornada: Jornada {i} seleccionada")
-            except NoSuchElementException:
-                log(f"obtener_clasificacion_jornada: La Jornada {i} no se encuentra.")
-                break
-            except TimeoutException:
-                log(f"obtener_clasificacion_jornada: Timeout al seleccionar Jornada {i}")
-                break
+            # volver a buscar el enlace en cada iteración (DOM cambia al recargar)
+            selector = f"//div[@class='gameweek-selector-inline']//a[contains(text(),'{jornada_text}')]"
+            enlace = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
+            enlace.click()
+            log(f"obtener_clasificacion_jornada: Jornada {jornada_num} seleccionada")
+            time.sleep(0.5)
 
-            tab_jornada = wait.until(EC.element_to_be_clickable((By.XPATH, '//button[@data-tab="gameweek"]')))
-            if "active" not in tab_jornada.get_attribute("class"):
-                tab_jornada.click()
-                log(f"obtener_clasificacion_jornada: Pestaña 'Jornada' activada manualmente")
+            wait.until(EC.presence_of_all_elements_located(
+                (By.XPATH, '//div[@class="panel panel-gameweek"]//li')
+            ))
+            jugadores = driver.find_elements(By.XPATH, '//div[@class="panel panel-gameweek"]//li')
 
-            wait.until(EC.presence_of_all_elements_located((By.XPATH, '//div[@class="panel panel-gameweek"]//li')))
-            gameweek_standings = driver.find_elements(By.XPATH, '//div[@class="panel panel-gameweek"]//li')
+            for item in jugadores:
+                try:
+                    position = item.find_element(By.CLASS_NAME, 'position').text.strip()
+                    name = item.find_element(By.CLASS_NAME, 'name').text.strip()
+                    points = item.find_element(By.CLASS_NAME, 'points').text.strip()
+                    played_text = item.find_element(By.CLASS_NAME, 'played').text.strip()
 
-            if gameweek_standings:
-                log(f"obtener_clasificacion_jornada: {len(gameweek_standings)} elementos encontrados en Jornada {i}")
+                    # En jornada: "6 / 11 Jugadores"
+                    jugadores_num = re.search(r"(\d+)", played_text).group() if played_text else "0"
 
-                for item in gameweek_standings:
-                    position = item.find_element(By.XPATH, './/div[@class="position"]').text.strip()
-                    name = item.find_element(By.XPATH, './/div[contains(@class, "name ")]').text.strip()
-                    points = item.find_element(By.XPATH, './/div[@class="points"]').text.strip()
-                    played_text = item.find_element(By.XPATH, './/div[contains(@class, "played")]').text.strip()
+                    datos_jornadas.append({
+                        "jornada": jornada_num,
+                        "nombre": name,
+                        "posicion": position,
+                        "puntos": points,
+                        "jugadores": jugadores_num,
+                        "valor_equipo": 0  # en jornada no aparece valor en €
+                    })
+                except Exception as e:
+                    log(f"obtener_clasificacion_jornada: Error procesando jugador en Jornada {jornada_num}: {e}")
 
-                    played_parts = played_text.split('·')
-                    if len(played_parts) == 2:
-                        players = played_parts[0].strip()
-                        amount = played_parts[1].strip()
-                        players_numbers = players.split(' ')[0]
-                        numeric_value = amount.replace('.', '')
-                        value_team = int(numeric_value)
-
-                        datos_jornada = {
-                            "jornada": str(i),
-                            "nombre": name,
-                            "posicion": position,
-                            "puntos": points,
-                            "jugadores": players_numbers,
-                            "valor_equipo": value_team
-                        }
-
-                        datos_por_jornada[i].append(datos_jornada)
-                        #log(f"obtener_clasificacion_jornada: Datos añadidos para {name} en Jornada {i}")
-            else:
-                log(f"obtener_clasificacion_jornada: No hay datos para la Jornada {i}")
-        except (TimeoutException, StaleElementReferenceException, NoSuchWindowException) as e:
-            log(f"obtener_clasificacion_jornada: Error procesando Jornada {i}: {e}")
-            if isinstance(e, NoSuchWindowException):
-                log("obtener_clasificacion_jornada: La ventana del navegador se ha cerrado.")
-                break
+        except Exception as e:
+            log(f"obtener_clasificacion_jornada: Error procesando {jornada_text}: {e}")
             continue
 
     log("obtener_clasificacion_jornada: Finalización de la función")
-    for jornada_data in datos_por_jornada.values():
-        datos_jornadas.extend(jornada_data)
-
     return datos_jornadas
