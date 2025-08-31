@@ -197,17 +197,18 @@ def get_base_path_from_ini(archivo='config.ini', seccion='paths', clave='base_cs
     config.read("config.ini")
     return config.get("paths", "base_csv", fallback="./data/csv")
 
-def obtener_urls_desde_db(schema="dbo", tabla="urls_jugadores"):
+def obtener_urls_desde_db(schema, tabla="urls_jugadores"):
     """
     Devuelve una lista de URLs de jugadores desde la tabla de PostgreSQL.
     """
+    temporada = obtener_temporada_actual()
     log(f"obtener_urls_desde_db: Cargando URLs desde {schema}.{tabla}")
     urls = []
 
     try:
         with conexion_db() as conn:
             with conn.cursor() as cur:
-                cur.execute(f"SELECT url FROM {schema}.{tabla}")
+                cur.execute(f"SELECT url FROM {schema}.{tabla} WHERE temporada = '{temporada}'")
                 urls = [row[0] for row in cur.fetchall()]
                 log(f"obtener_urls_desde_db: Se obtuvieron {len(urls)} URLs")
     except Exception as e:
