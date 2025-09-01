@@ -84,7 +84,7 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                 registros = [tuple(x) for x in df.to_numpy()]
 
                 conflict_clause = ""
-                if tipo_carga in ("total", "incremental", "diferencial") and clave_conflicto:
+                if tipo_carga in ("total", "incremental", "diferencial","acumulado") and clave_conflicto:
                     conflict_keys = ', '.join([f'"{col}"' for col in clave_conflicto])
                     updates = ', '.join([f'"{col}" = EXCLUDED."{col}"' for col in columnas if col not in clave_conflicto])
                     conflict_clause = f'ON CONFLICT ({conflict_keys}) DO UPDATE SET {updates}'
