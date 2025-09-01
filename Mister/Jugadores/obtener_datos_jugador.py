@@ -95,11 +95,12 @@ def obtener_urls_jugadores(driver, schema=None):
     return datos_urls
 
 
-def obtener_datos_jugador(driver,schema=None):
+def obtener_datos_jugador(driver, schema=None):
     _ = schema
     log("obtener_datos_jugador: Inicio de la función")
+    temporada = obtener_temporada_actual()
     datos_de_jugadores = []
-    urls_jugadores = obtener_urls_desde_db()
+    urls_jugadores = obtener_urls_desde_db(schema)
 
     for player_url in urls_jugadores:
         datos_jugador = {}
@@ -107,20 +108,21 @@ def obtener_datos_jugador(driver,schema=None):
         log(f"Accediendo a perfil: {player_url}")
 
         try:
-            name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
-            surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+            # Nombre y apellido
+            name = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .name").text.strip()
+            surname = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .surname").text.strip()
 
-            # ✅ Extraer nombre del equipo
-            team_element = driver.find_element(By.XPATH, '//div[@class="team-position"]/a')
-            equipo = team_element.get_attribute("data-title").strip()
+            # Equipo
+            team_element = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .team-position a")
+            equipo = team_element.get_attribute("href").split("/")[-1].replace("-", " ").title()
         except Exception as e:
             log(f"Error obteniendo nombre, apellido o equipo: {e}")
             continue
 
         try:
-            position_element = driver.find_element(By.XPATH, '//div[@class="team-position"]/i[contains(@class, "pos-")]')
-            position_class = position_element.get_attribute('class')
-            position_number = re.search(r'pos-(\d+)', position_class).group(1)
+            # Posición
+            position_element = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .player-position")
+            position_number = position_element.get_attribute("data-position")
             position_mapping = {'1': 'PT', '2': 'DF', '3': 'MC', '4': 'DL'}
             position = position_mapping.get(position_number, 'Desconocida')
         except Exception as e:
@@ -134,13 +136,14 @@ def obtener_datos_jugador(driver,schema=None):
         player_id = player_url.split("/players/")[1].split("/")[0]
         datos_jugador['id_jugador'] = player_id
 
+        # Estadísticas principales
         try:
             stats_wrapper = driver.find_element(By.CLASS_NAME, 'player-stats-wrapper')
             stats_items = stats_wrapper.find_elements(By.CLASS_NAME, 'item')
             stats_dict = {}
             for item in stats_items:
-                label = item.find_element(By.CLASS_NAME, 'label').text
-                value = item.find_element(By.CLASS_NAME, 'value').text
+                label = item.find_element(By.CLASS_NAME, 'label').text.strip()
+                value = item.find_element(By.CLASS_NAME, 'value').text.strip()
                 stats_dict[label] = value
 
             datos_jugador['Valor'] = stats_dict.get('Valor')
@@ -153,10 +156,8 @@ def obtener_datos_jugador(driver,schema=None):
         except Exception as e:
             log(f"Error obteniendo estadísticas de {name}: {e}")
 
+        # Historial de movimientos (fichajes)
         try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.CLASS_NAME, "box-records"))
-            )
             historial_boxes = driver.find_elements(By.CLASS_NAME, "box-records")
             movimientos = []
             for box in historial_boxes:
@@ -170,11 +171,12 @@ def obtener_datos_jugador(driver,schema=None):
                 ultimo_mov = movimientos[0]
                 left = ultimo_mov.find_element(By.CLASS_NAME, "left")
                 right = ultimo_mov.find_element(By.CLASS_NAME, "right")
-                texto_bottom = left.find_element(By.CLASS_NAME, "bottom").text
-                precio = right.text.strip()
-                fecha = left.find_element(By.CLASS_NAME, "top").text.strip()
 
-                match = re.search(r'De\s+(.*?)\s+a\s+(.*)', texto_bottom)
+                fecha = left.find_element(By.CLASS_NAME, "label").text.strip()
+                texto_valor = left.find_element(By.CLASS_NAME, "value").text.strip()
+                precio = right.text.strip()
+
+                match = re.search(r'De\s+(.*?)\s+a\s+(.*)', texto_valor)
                 if match:
                     datos_jugador['Propietario'] = match.group(2).strip()
                 else:
@@ -192,15 +194,17 @@ def obtener_datos_jugador(driver,schema=None):
             datos_jugador['Fecha'] = ""
             datos_jugador['Precio'] = ""
 
+        # Alertas (player-notices)
         try:
-            alert_boxes = driver.find_elements(By.XPATH, '//div[@class="box alert-status"]')
-            if not alert_boxes:
+            notices_box = driver.find_elements(By.CSS_SELECTOR, ".player-notices .box")
+            if not notices_box:
                 datos_jugador['Alerta'] = "Jugador sin alertas"
             else:
                 alertas = []
-                for alert in alert_boxes:
-                    texto = " ".join(alert.text.strip().split())
-                    alertas.append(texto)
+                for box in notices_box:
+                    texto = " ".join(box.text.strip().split())
+                    if texto:
+                        alertas.append(texto)
                 datos_jugador['Alerta'] = " | ".join(alertas)
         except Exception as e:
             log(f"Error extrayendo alertas: {e}")
@@ -211,7 +215,6 @@ def obtener_datos_jugador(driver,schema=None):
 
     log(f"obtener_datos_jugador: Finalización con {len(datos_de_jugadores)} jugadores procesados")
     return datos_de_jugadores
-
 
 
 def obtener_datos_jornadas(driver, schema):
@@ -248,6 +251,14 @@ def obtener_datos_jornadas(driver, schema):
                 except Exception:
                     ultima_jornada = 0
 
+                # recuperar pendientes
+                cur.execute(
+                    f"SELECT jornada FROM {schema}.progreso_jornadas_pendientes "
+                    f"WHERE id_jugador = %s AND temporada = %s",
+                    (player_id, temporada)
+                )
+                pendientes = {row[0] for row in cur.fetchall()}
+
                 try:
                     elements = driver.find_elements(By.XPATH, '//div[contains(@class,"gw btn btn-player-gw")]')
                 except Exception:
@@ -265,7 +276,8 @@ def obtener_datos_jornadas(driver, schema):
                         numero_jornada = int(re.search(r'\d+', gw_text).group())
                         jornadas_encontradas.add(numero_jornada)
 
-                        if numero_jornada <= ultima_jornada:
+                        # saltar jornadas ya procesadas salvo que estén en pendientes
+                        if numero_jornada <= ultima_jornada and numero_jornada not in pendientes:
                             continue
 
                         datos_jornada = {
@@ -301,6 +313,12 @@ def obtener_datos_jornadas(driver, schema):
                             datos_jornadas.append(datos_jornada)
                             log(f"{name} {surname} J{numero_jornada}: detectado not-played → No jugó la jornada")
                             jornadas_insertadas.append(numero_jornada)
+                            # borrar de pendientes si estaba
+                            cur.execute(
+                                f"DELETE FROM {schema}.progreso_jornadas_pendientes "
+                                f"WHERE id_jugador = %s AND temporada = %s AND jornada = %s",
+                                (player_id, temporada, numero_jornada)
+                            )
                             continue
 
                         elif "#injury" in inner_html:
@@ -308,6 +326,11 @@ def obtener_datos_jornadas(driver, schema):
                             datos_jornadas.append(datos_jornada)
                             log(f"{name} {surname} J{numero_jornada}: detectado injury → Lesionado")
                             jornadas_insertadas.append(numero_jornada)
+                            cur.execute(
+                                f"DELETE FROM {schema}.progreso_jornadas_pendientes "
+                                f"WHERE id_jugador = %s AND temporada = %s AND jornada = %s",
+                                (player_id, temporada, numero_jornada)
+                            )
                             continue
 
                         elif "#suspension" in inner_html:
@@ -315,6 +338,11 @@ def obtener_datos_jornadas(driver, schema):
                             datos_jornadas.append(datos_jornada)
                             log(f"{name} {surname} J{numero_jornada}: detectado suspension → Sancionado")
                             jornadas_insertadas.append(numero_jornada)
+                            cur.execute(
+                                f"DELETE FROM {schema}.progreso_jornadas_pendientes "
+                                f"WHERE id_jugador = %s AND temporada = %s AND jornada = %s",
+                                (player_id, temporada, numero_jornada)
+                            )
                             continue
 
                         elif "#other" in inner_html:
@@ -322,6 +350,11 @@ def obtener_datos_jornadas(driver, schema):
                             datos_jornadas.append(datos_jornada)
                             log(f"{name} {surname} J{numero_jornada}: detectado other → No convocado")
                             jornadas_insertadas.append(numero_jornada)
+                            cur.execute(
+                                f"DELETE FROM {schema}.progreso_jornadas_pendientes "
+                                f"WHERE id_jugador = %s AND temporada = %s AND jornada = %s",
+                                (player_id, temporada, numero_jornada)
+                            )
                             continue
 
                         else:
@@ -330,12 +363,11 @@ def obtener_datos_jornadas(driver, schema):
                         # --- Extraer estadísticas detalladas del popup ---
                         stats_extraidos = False
                         try:
-                            # 1) abrir popup general de la jornada
                             driver.execute_script("arguments[0].scrollIntoView({block:'center'});", element)
                             time.sleep(0.2)
                             driver.execute_script("arguments[0].click();", element)
 
-                            # 2) esperar popup o toast
+                            # esperar popup o toast
                             try:
                                 toast = WebDriverWait(driver, 2).until(
                                     EC.presence_of_element_located((By.ID, "toast"))
@@ -346,26 +378,42 @@ def obtener_datos_jornadas(driver, schema):
                                     log(f"{name} {surname} J{numero_jornada}: detectado toast → No jugó la jornada")
                                     datos_jornadas.append(datos_jornada)
                                     jornadas_insertadas.append(numero_jornada)
+                                    cur.execute(
+                                        f"DELETE FROM {schema}.progreso_jornadas_pendientes "
+                                        f"WHERE id_jugador = %s AND temporada = %s AND jornada = %s",
+                                        (player_id, temporada, numero_jornada)
+                                    )
                                     continue
                             except TimeoutException:
-                                pass  # no hubo toast → seguimos normal
+                                pass
 
-                            # 3) esperar a que aparezca popup general
                             WebDriverWait(driver, 5).until(
                                 EC.presence_of_element_located((By.ID, "popup"))
                             )
 
-                            # 4) buscar y clicar botón "Ver más estadísticas"
                             try:
-                                boton_stats = WebDriverWait(driver, 5).until(
+                                boton_stats = WebDriverWait(driver, 3).until(
                                     EC.presence_of_element_located((By.CSS_SELECTOR, "button[data-popup='player-breakdown']"))
                                 )
                                 driver.execute_script("arguments[0].click();", boton_stats)
-                            except Exception as e:
-                                log(f"No se encontró botón de estadísticas para {name} J{numero_jornada}: {e}")
-                                raise
+                            except TimeoutException:
+                                if datos_jornada.get("Eventos"):
+                                    log(f"{name} {surname} J{numero_jornada}: sin estadísticas avanzadas pero con eventos")
+                                    datos_jornada["SancionOLesion"] = ""
+                                else:
+                                    log(f"{name} {surname} J{numero_jornada}: jugó pero Mister no da estadísticas → Sin estadísticas avanzadas")
+                                    datos_jornada["SancionOLesion"] = "Sin estadísticas avanzadas"
 
-                            # 5) esperar a que aparezca el contenido con estadísticas
+                                stats_extraidos = True
+                                datos_jornadas.append(datos_jornada)
+                                jornadas_insertadas.append(numero_jornada)
+                                cur.execute(
+                                    f"DELETE FROM {schema}.progreso_jornadas_pendientes "
+                                    f"WHERE id_jugador = %s AND temporada = %s AND jornada = %s",
+                                    (player_id, temporada, numero_jornada)
+                                )
+                                continue
+
                             tabla = WebDriverWait(driver, 5).until(
                                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.content.player-breakdown table"))
                             )
@@ -379,7 +427,6 @@ def obtener_datos_jornadas(driver, schema):
 
                             stats_extraidos = True
 
-                            # 6) cerrar popup
                             try:
                                 popup_close = driver.find_element(By.CSS_SELECTOR, "#popup .popup-close")
                                 driver.execute_script("arguments[0].click();", popup_close)
@@ -392,11 +439,17 @@ def obtener_datos_jornadas(driver, schema):
                         if not stats_extraidos and datos_jornada["SancionOLesion"] == "":
                             datos_jornada["SancionOLesion"] = "No se pudieron extraer estadísticas"
 
-                        # guardar datos
                         datos_jornadas.append(datos_jornada)
                         log(f"Datos extraídos para {name} {surname} en jornada {numero_jornada}")
                         log(f"→ Datos: {datos_jornada}")
                         jornadas_insertadas.append(numero_jornada)
+
+                        # borrar pendiente si estaba
+                        cur.execute(
+                            f"DELETE FROM {schema}.progreso_jornadas_pendientes "
+                            f"WHERE id_jugador = %s AND temporada = %s AND jornada = %s",
+                            (player_id, temporada, numero_jornada)
+                        )
 
                     except Exception as e:
                         log(f"Error procesando jornada {numero_jornada} para {name} {surname}: {e}")
@@ -417,10 +470,10 @@ def obtener_datos_jornadas(driver, schema):
 
                     for j_faltante in jornadas_faltantes:
                         cur.execute(f"""
-                            INSERT INTO {schema}.progreso_jornadas_pendientes(id_jugador, jornada, temporada)
+                            INSERT INTO {schema}.progreso_jornadas_pendientes(id_jugador, temporada, jornada)
                             VALUES (%s, %s, %s)
-                            ON CONFLICT DO NOTHING
-                        """, (player_id, j_faltante, temporada))
+                            ON CONFLICT (id_jugador, temporada, jornada) DO NOTHING
+                        """, (player_id, temporada, j_faltante))
 
                 time.sleep(0.3)
 
@@ -428,8 +481,6 @@ def obtener_datos_jornadas(driver, schema):
 
     log(f"obtener_datos_jornadas: Finalización con {len(datos_jornadas)} registros procesados")
     return datos_jornadas
-
-
 
 def obtener_datos_jornadas_inicial(driver, schema, max_jornada=34, salto=2):
     log("obtener_datos_jornadas_inicial: Inicio de la función")
