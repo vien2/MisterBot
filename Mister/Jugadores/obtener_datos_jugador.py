@@ -742,65 +742,60 @@ def obtener_registros_transferencia(driver,schema=None):
     return todos_registros
 
 
-def obtener_puntos(driver,schema=None):
+def obtener_puntos(driver, schema=None):
     _ = schema
     log("obtener_puntos: Inicio de la función")
-
-    wait = WebDriverWait(driver, 2)
+    wait = WebDriverWait(driver, 5)
     todos_puntos = []
-    
-    urls_jugadores = obtener_urls_desde_db()
+    urls_jugadores = obtener_urls_desde_db(schema)
 
     for player_url in urls_jugadores:
         driver.get(player_url)
         player_id = player_url.split("/players/")[1].split("/")[0]
+
+        # --- Nombre y apellido ---
         try:
-            name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
-            surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+            name = driver.find_element(By.CSS_SELECTOR, "div.player-profile-header div.name").text.strip()
+            surname = driver.find_element(By.CSS_SELECTOR, "div.player-profile-header div.surname").text.strip()
         except Exception as e:
             log(f"obtener_puntos: Error obteniendo nombre/apellido en {player_url}: {e}")
             continue
 
+        # --- Historial de puntos ---
         try:
-            box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')
-            historial_puntos_container = box_container.find_element(
-                By.XPATH, "//h4[text()='Historial de puntos']/parent::div[@class='section-title']/following-sibling::div[@class='box box-records']"
+            # Buscar el bloque con h4 = Historial de puntos
+            historial_puntos_container = driver.find_element(
+                By.XPATH, "//h4[text()='Historial de puntos']/ancestor::div[@class='box-wrapper']//div[@class='box box-records']/ul"
             )
-            puntos_items = historial_puntos_container.find_elements(By.TAG_NAME, 'li')
+            puntos_items = historial_puntos_container.find_elements(By.TAG_NAME, "li")
         except Exception as e:
             log(f"obtener_puntos: Error obteniendo historial de puntos para {name} {surname}: {e}")
             continue
 
-        if len(puntos_items) == 1:
-            try:
-                class_attr = puntos_items[0].get_attribute("class")
-                if "alert-no-info" in class_attr:
-                    registro = {
-                        "id_jugador": player_id,
-                        "Nombre": name,
-                        "Apellido": surname,
-                        "top": None,
-                        "bottom": None,
-                        "right": None
-                    }
-                    todos_puntos.append(registro)
-                    #log(f"obtener_puntos: {name} {surname} no tiene historial de puntos")
-                    continue
-            except Exception:
-                pass
+        if not puntos_items:
+            registro = {
+                "id_jugador": player_id,
+                "Nombre": name,
+                "Apellido": surname,
+                "top": None,
+                "bottom": None,
+                "right": None
+            }
+            todos_puntos.append(registro)
+            continue
 
         for item in puntos_items:
             try:
                 try:
-                    top = item.find_element(By.CLASS_NAME, 'top').text
+                    top = item.find_element(By.CLASS_NAME, "label").text.strip()
                 except NoSuchElementException:
                     top = None
                 try:
-                    bottom = item.find_element(By.CLASS_NAME, 'bottom').text
+                    bottom = item.find_element(By.CLASS_NAME, "value").text.strip()
                 except NoSuchElementException:
                     bottom = None
                 try:
-                    right = item.find_element(By.CLASS_NAME, 'right').text
+                    right = item.find_element(By.CLASS_NAME, "right").text.strip()
                 except NoSuchElementException:
                     right = None
 
@@ -813,7 +808,7 @@ def obtener_puntos(driver,schema=None):
                     "right": right
                 }
                 todos_puntos.append(registro)
-                #log(f"obtener_puntos: Puntos añadidos para {name} {surname} - top: {top}, bottom: {bottom}, right: {right}")
+                # log(f"obtener_puntos: {name} {surname} - top: {top}, bottom: {bottom}, right: {right}")
             except Exception as e:
                 log(f"obtener_puntos: Error extrayendo punto de {name} {surname}: {e}")
                 continue
