@@ -8,6 +8,9 @@ import hashlib
 import unicodedata
 import re
 import pandas as pd
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 def añadir_hash(df, schema='dbo', tabla=''):
     if not tabla:
@@ -222,3 +225,16 @@ def limpiar_columna(col):
     col = col.encode("ascii", "ignore").decode("utf-8")  # elimina tildes
     col = col.lower().replace(" ", "_")
     return col
+
+def cerrar_popup_anuncios(driver):
+    """Cierra el popup de anuncios si aparece"""
+    try:
+        boton_cerrar = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "div#popup button.popup-close"))
+        )
+        driver.execute_script("arguments[0].click();", boton_cerrar)
+        log("Popup de anuncios detectado y cerrado con la X.")
+        return True
+    except Exception as e:
+        log(f"No apareció el popup de anuncios (o ya estaba cerrado): {e}")
+        return False

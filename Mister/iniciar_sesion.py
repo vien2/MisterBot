@@ -4,7 +4,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import configparser
 from selenium.webdriver.chrome.service import Service as ChromeService
-from utils import log
+from utils import log,cerrar_popup_anuncios
 
 def iniciar_sesion(schema=None):
     log("iniciar_sesion: Inicio de la función")
@@ -41,6 +41,9 @@ def iniciar_sesion(schema=None):
     # Esperamos a que cargue el menú principal
     WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "menu")))
 
+    # Intentar cerrar popup inicial
+    cerrar_popup_anuncios(driver)
+    
     # Seleccionar liga si se especificó un schema
     if schema:
         log(f"Buscando liga correspondiente al schema '{schema}'...")
