@@ -677,66 +677,74 @@ def obtener_datos_jornadas_inicial(driver, schema, max_jornada=34, salto=2):
     log(f"obtener_datos_jornadas_inicial: Finalización con {len(datos_jornadas)} registros procesados")
     return datos_jornadas
 
-def obtener_registros_transferencia(driver,schema=None):
+
+def obtener_registros_transferencia(driver, schema=None):
     _ = schema
     log("obtener_registros_transferencia: Inicio de la función")
-
-    wait = WebDriverWait(driver, 2)
     todos_registros = []
-    urls_jugadores = obtener_urls_desde_db()
+    urls_jugadores = obtener_urls_desde_db(schema)
 
     for player_url in urls_jugadores:
         driver.get(player_url)
+        player_id = player_url.split("/players/")[1].split("/")[0]
+
+        # Nombre y apellido
         try:
-            name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
-            surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+            name = driver.find_element(By.CSS_SELECTOR, "div.player-profile-header div.name").text.strip()
+            surname = driver.find_element(By.CSS_SELECTOR, "div.player-profile-header div.surname").text.strip()
         except Exception as e:
-            log(f"obtener_registros_transferencia: Error obteniendo nombre o apellido en {player_url}: {e}")
+            log(f"obtener_registros_transferencia: Error obteniendo nombre/apellido en {player_url}: {e}")
             continue
 
-        registros_transferencia = []
-        player_id = player_url.split("/players/")[1].split("/")[0]
         try:
-            box_records_div = driver.find_element(By.XPATH, '//div[@class="box box-records"]')
-            lis = box_records_div.find_elements(By.XPATH, './ul/li')
+            # Esperar hasta 3s a que aparezca el título "Últimos movimientos"
+            movimientos_title = WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((By.XPATH, "//div[@class='section-title']/h4[text()='Últimos movimientos']"))
+            )
+            log(f"obtener_registros_transferencia: Sección 'Últimos movimientos' detectada para {name} {surname}")
+
+            # Buscar el box-records que está como hermano siguiente del título
+            box_records_div = movimientos_title.find_element(By.XPATH, "./parent::div/following-sibling::div[@class='box box-records']")
+            lis = box_records_div.find_elements(By.TAG_NAME, "li")
+        except TimeoutException:
+            # No hay movimientos → ignorar jugador
+            continue
         except Exception as e:
-            log(f"obtener_registros_transferencia: No se encontraron registros en {player_url}: {e}")
+            log(f"obtener_registros_transferencia: Error accediendo a movimientos de {name} {surname}: {e}")
             continue
 
         for li in lis:
             try:
-                text_elements = li.find_elements(By.XPATH, ".//div[@class='left']//div[@class='top' or @class='bottom']")
-                text = [element.text for element in text_elements]
-                message = '\n'.join(text)
+                label = li.find_element(By.CLASS_NAME, "label").text.strip()   # ej: "20 ago 2025 · Fichaje"
+                value = li.find_element(By.CLASS_NAME, "value").text.strip()   # ej: "De Mister a vien2"
+                precio = li.find_element(By.CLASS_NAME, "right").text.strip()
 
-                match = re.search(r'(\d+\s\w+\s\d+)\s·\s(Cláusula|Fichaje)\sDe\s(.+)\sa\s(.+)', message)
+                if " · " not in label:
+                    continue
+                fecha, tipo_operacion = label.split(" · ")
+
+                match = re.match(r"De\s+(.*?)\s+a\s+(.*)", value)
                 if match:
-                    fecha = match.group(1)
-                    tipo_operacion = match.group(2)
-                    usuario_origen = match.group(3)
-                    usuario_destino = match.group(4)
-                    try:
-                        precio = li.find_element(By.XPATH, ".//div[@class='right']").text
-                    except Exception:
-                        precio = ""
+                    usuario_origen, usuario_destino = match.group(1), match.group(2)
+                else:
+                    usuario_origen, usuario_destino = None, None
 
-                    registro = {
-                        "Nombre": name,
-                        "Apellido": surname,
-                        "fecha": fecha,
-                        "tipo_operacion": tipo_operacion,
-                        "usuario_origen": usuario_origen,
-                        "usuario_destino": usuario_destino,
-                        "precio": precio,
-                        "id_jugador": player_id
-                    }
-                    registros_transferencia.append(registro)
-                    log(f"obtener_registros_transferencia: Registro añadido - {name} {surname} | {tipo_operacion} de {usuario_origen} a {usuario_destino}")
+                registro = {
+                    "Nombre": name,
+                    "Apellido": surname,
+                    "fecha": fecha,
+                    "tipo_operacion": tipo_operacion,
+                    "usuario_origen": usuario_origen,
+                    "usuario_destino": usuario_destino,
+                    "precio": precio,
+                    "id_jugador": player_id
+                }
+                todos_registros.append(registro)
+                log(f"obtener_registros_transferencia: Registro añadido - {name} {surname} | {tipo_operacion} de {usuario_origen} a {usuario_destino}")
+
             except Exception as e:
                 log(f"obtener_registros_transferencia: Error procesando registro para {name}: {e}")
                 continue
-
-        todos_registros.extend(registros_transferencia)
 
     log(f"obtener_registros_transferencia: Finalización con {len(todos_registros)} registros totales")
     return todos_registros
@@ -817,67 +825,50 @@ def obtener_puntos(driver, schema=None):
     return todos_puntos
 
 
-def obtener_valores(driver,schema=None):
+def obtener_valores(driver, schema=None):
     _ = schema
     log("obtener_valores: Inicio de la función")
 
-    wait = WebDriverWait(driver, 2)
     valores = []
-    
-    urls_jugadores = obtener_urls_desde_db()
+    urls_jugadores = obtener_urls_desde_db(schema)
 
     for player_url in urls_jugadores:
         driver.get(player_url)
         player_id = player_url.split("/players/")[1].split("/")[0]
+
+        # Nombre y apellido
         try:
-            name = driver.find_element(By.XPATH, '//div[@class="left"]//div[@class="name"]').text
+            name = driver.find_element(By.CSS_SELECTOR, "div.player-profile-header div.name").text.strip()
         except Exception:
             name = None
         try:
-            surname = driver.find_element(By.CLASS_NAME, 'surname').text.strip()
+            surname = driver.find_element(By.CSS_SELECTOR, "div.player-profile-header div.surname").text.strip()
         except Exception:
             surname = None
 
         try:
-            box_container = driver.find_element(By.CLASS_NAME, 'boxes-2')
-            historial_valores_container = box_container.find_element(
-                By.XPATH, "//h4[text()='Historial de valores']/parent::div[@class='section-title']/following-sibling::div[@class='box box-records']"
+            # Buscar el bloque de "Historial de valores"
+            historial_valores_container = driver.find_element(
+                By.XPATH, "//h4[text()='Historial de valores']/parent::div/following-sibling::div[@class='box box-records']"
             )
-            valores_items = historial_valores_container.find_elements(By.TAG_NAME, 'li')
+            valores_items = historial_valores_container.find_elements(By.TAG_NAME, "li")
         except Exception as e:
-            log(f"obtener_valores: Error obteniendo historial de valores para {name} {surname}: {e}")
+            log(f"obtener_valores: No se encontró historial de valores para {name} {surname}: {e}")
             continue
 
-        if len(valores_items) == 1:
-            try:
-                class_attr = valores_items[0].get_attribute("class")
-                if "alert-no-info" in class_attr:
-                    registro = {
-                        "id_jugador": player_id,
-                        "Nombre": name,
-                        "Apellido": surname,
-                        "top": None,
-                        "bottom": None,
-                        "right": None
-                    }
-                    valores.append(registro)
-                    log(f"obtener_valores: {name} {surname} sin historial de valores")
-                    continue
-            except Exception:
-                pass
-
+        # Procesar cada item del historial
         for item in valores_items:
             try:
                 try:
-                    top = item.find_element(By.CLASS_NAME, 'top').text
+                    top = item.find_element(By.CLASS_NAME, "label").text.strip()
                 except NoSuchElementException:
                     top = None
                 try:
-                    bottom = item.find_element(By.CLASS_NAME, 'bottom').text
+                    bottom = item.find_element(By.CLASS_NAME, "value").text.strip()
                 except NoSuchElementException:
                     bottom = None
                 try:
-                    right = item.find_element(By.CLASS_NAME, 'right').text
+                    right = item.find_element(By.CLASS_NAME, "right").text.strip()
                 except NoSuchElementException:
                     right = None
 
@@ -890,9 +881,9 @@ def obtener_valores(driver,schema=None):
                     "right": right
                 }
                 valores.append(registro)
-                log(f"obtener_valores: Valor añadido para {name} {surname} - top: {top}, bottom: {bottom}, right: {right}")
+                log(f"obtener_valores: Valor añadido - {name} {surname} | {top} | {bottom} | {right}")
             except Exception as e:
-                log(f"obtener_valores: Error extrayendo valor de {name} {surname}: {e}")
+                log(f"obtener_valores: Error procesando valor de {name} {surname}: {e}")
                 continue
 
     log(f"obtener_valores: Finalización con {len(valores)} registros de valores")
