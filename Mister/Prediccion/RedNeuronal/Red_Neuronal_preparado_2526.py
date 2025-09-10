@@ -61,9 +61,17 @@ ORDER BY jl.jornada ASC
 query_jugadores = f"SELECT * FROM chavalitos.v_datos_jornadas WHERE temporada = '{temporada_objetivo}'"
 query_equipos_jugador = f"SELECT DISTINCT id_jugador, equipo FROM chavalitos.v_datos_jugador WHERE temporada = '{temporada_objetivo}'"
 query_proxima_jornada = f"""
+WITH jornadas AS (
+    SELECT jornada::integer,
+           COUNT(*) AS partidos,
+           SUM(CASE WHEN resultado ~ '^\d+\s*[-·]\s*\d+$' THEN 1 ELSE 0 END) AS jugados
+    FROM chavalitos.jornadas_liga
+    WHERE temporada = '25/26'
+    GROUP BY jornada
+)
 SELECT MIN(jornada) AS proxima_jornada
-FROM chavalitos.v_jornadas_liga
-WHERE temporada = '{temporada_objetivo}' AND goles_local IS NULL AND goles_visitante IS NULL
+FROM jornadas
+WHERE jugados < partidos;
 """
 
 with conexion_db() as conn:
@@ -150,7 +158,7 @@ def crear_modelo(input_dim):
 # Entrenamiento hasta jornada actual
 # ------------------------ #
 df_entrenamiento = df[df['jornada'] < proxima_jornada].copy()
-df_pred = df[df['jornada'] == proxima_jornada].copy()
+df_pred = df[(df['jornada'] == proxima_jornada) & df['goles_local'].isna() & df['goles_visitante'].isna()].copy()
 
 X_train = df_entrenamiento[features].replace([np.inf, -np.inf], np.nan).fillna(0)
 X_test = df_pred[features].replace([np.inf, -np.inf], np.nan).fillna(0)
