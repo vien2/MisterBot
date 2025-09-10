@@ -7,53 +7,58 @@ from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import NoSuchElementException
 from utils import log
 
-def obtener_datos_liga(driver,schema=None):
+def obtener_datos_liga(driver, schema=None):
     _ = schema
     log("obtener_datos_liga: Inicio de la función")
 
     wait = WebDriverWait(driver, 10)
 
     try:
-        enlace_mas = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='header-menu']//div[contains(text(), 'Más')]/parent::li/a")))
-        enlace_mas.click()
-        log("obtener_datos_liga: Enlace 'Más' clickeado")
+        # 1️⃣ Clic en el botón de la jornada
+        boton_jornada = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "div.feed-top-gameweek button.btn.btn-sw")
+        ))
+        boton_jornada.click()
+        log("obtener_datos_liga: Botón de jornada clickeado")
         time.sleep(2)
 
-        enlace_laliga = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'LaLiga')]")))
-        enlace_laliga.click()
-        log("obtener_datos_liga: Botón 'LaLiga' clickeado")
+        # 2️⃣ Clic en el botón de competición (calendario/tabla)
+        boton_competicion = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "div.sw-top-right button[data-sw='competition']")
+        ))
+        boton_competicion.click()
+        log("obtener_datos_liga: Botón 'Competición' clickeado")
         time.sleep(2)
 
+        # 3️⃣ Obtener HTML y buscar la tabla
         html_content = driver.page_source
-        soup = BeautifulSoup(html_content, 'html.parser')
+        soup = BeautifulSoup(html_content, "html.parser")
 
-        table = soup.find('div', class_='box box-table')
+        table = soup.find("div", class_="box box-table")
         if not table:
             log("obtener_datos_liga: No se encontró la tabla de clasificación")
             return []
 
-        rows = table.find_all('tr')[1:]
+        rows = table.find_all("tr")[1:]  # Omitimos la cabecera
 
         data_list = []
-
         for row in rows:
-            cols = row.find_all('td')
+            cols = row.find_all("td")
             try:
                 equipo_data = {
-                    "Posicion": cols[0].text.strip(),
-                    "Escudo": cols[1].find('img')['src'],
-                    "Equipo": cols[2].text.strip(),
-                    "PTS": cols[3].text.strip(),
-                    "PJ": cols[4].text.strip(),
-                    "PG": cols[5].text.strip(),
-                    "PE": cols[6].text.strip(),
-                    "PP": cols[7].text.strip(),
-                    "DG": cols[8].text.strip() if len(cols) > 8 else 'N/A'
+                    "Posicion": cols[0].get_text(strip=True),
+                    "Escudo": cols[1].find("img")["src"],
+                    "Equipo": cols[2].get_text(strip=True),
+                    "PTS": cols[3].get_text(strip=True),
+                    "PJ": cols[4].get_text(strip=True),
+                    "PG": cols[5].get_text(strip=True),
+                    "PE": cols[6].get_text(strip=True),
+                    "PP": cols[7].get_text(strip=True),
+                    "DG": cols[8].get_text(strip=True) if len(cols) > 8 else "N/A",
                 }
                 data_list.append(equipo_data)
-                #log(f"obtener_datos_liga: Datos añadidos - {equipo_data['Equipo']} | PTS: {equipo_data['PTS']}")
             except Exception as e:
-                log(f"obtener_datos_liga: Error procesando una fila de la tabla: {e}")
+                log(f"obtener_datos_liga: Error procesando fila: {e}")
                 continue
 
         log(f"obtener_datos_liga: Finalización exitosa con {len(data_list)} equipos procesados")
