@@ -26,11 +26,15 @@ def obtener_clasificacion_jornada(driver, schema=None):
 
     # --- Activar pestaña Jornada ---
     try:
-        boton_jornada = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='tabs segment tabs-standings']//button[@data-tab='gameweek']")
+        boton_jornada = wait.until(EC.presence_of_element_located(
+            (By.XPATH, "//div[@class='segments']//button[@data-tab='gameweek']")
         ))
-        boton_jornada.click()
-        log("obtener_clasificacion_jornada: Pestaña 'Jornada' clickeada")
+
+        if "active" not in boton_jornada.get_attribute("class"):
+            boton_jornada.click()
+            log("obtener_clasificacion_jornada: Pestaña 'Jornada' clickeada")
+        else:
+            log("obtener_clasificacion_jornada: Pestaña 'Jornada' ya estaba activa")
     except Exception as e:
         log(f"obtener_clasificacion_jornada: Error al hacer clic en la pestaña 'Jornada': {e}")
         return []
