@@ -13,29 +13,21 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 def añadir_hash(df, schema='dbo', tabla=''):
-    if not tabla:
-        raise ValueError("Para añadir_hash con orden de tabla real, debes pasar el nombre de la tabla.")
-
-    columnas_excluir = {'f_carga', 'hash'}  # puedes excluir más si lo deseas
-
-    with conexion_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = %s AND table_name = %s
-                ORDER BY ordinal_position
-            """, (schema, tabla))
-            columnas_ordenadas = [row[0] for row in cur.fetchall() if row[0] not in columnas_excluir]
-
-    # Eliminar columnas que no existan en el DataFrame (por si acaso)
-    columnas_validas = [col for col in columnas_ordenadas if col in df.columns]
+    columnas_excluir = {'f_carga', 'hash'}
+    columnas_validas = [col for col in df.columns if col not in columnas_excluir]
 
     def calcular_hash(row):
-        cadena = ''.join(str(row[col]) for col in columnas_validas)
-        return hashlib.sha256(cadena.encode('utf-8')).hexdigest()
+        valores = []
+        for col in columnas_validas:
+            v = row[col]
+            if pd.isna(v) or v is None:
+                valores.append("")
+            else:
+                valores.append(str(v))
+        cadena = "|".join(valores)
+        return hashlib.sha256(cadena.encode("utf-8")).hexdigest()
 
-    df['hash'] = df.apply(calcular_hash, axis=1)
+    df["hash"] = df.apply(calcular_hash, axis=1)
     return df
 
 def añadir_f_carga(df):

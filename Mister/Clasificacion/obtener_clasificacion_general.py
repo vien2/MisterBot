@@ -27,13 +27,15 @@ def obtener_clasificacion_general(driver, schema=None):
     # --- Pulsar botón General ---
     try:
         boton_general = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//div[@class='tabs segment tabs-standings']//button[@data-tab='total']")
+            (By.XPATH, "//div[@class='segments']//button[@data-tab='total']")
         ))
-        boton_general.click()
-        log("obtener_clasificacion_general: Pestaña 'General' clickeada")
+        if "active" not in boton_general.get_attribute("class"):
+            boton_general.click()
+        log("obtener_clasificacion_general: Pestaña 'General' activada")
     except Exception as e:
-        log(f"obtener_clasificacion_general: Error al hacer clic en la pestaña General: {e}")
+        log(f"obtener_clasificacion_general: Error al activar la pestaña General: {e}")
         return []
+
 
     # --- Extraer elementos de la clasificación ---
     try:
