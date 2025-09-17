@@ -36,16 +36,14 @@ def obtener_best_xi_jornadas_finalizadas(driver, schema=None):
 
     # 1) Abrir el selector de jornadas (icono flecha en feed-top-gameweek)
     try:
-        # Si ya está abierto, este click no hace daño; si no lo está, lo abre.
-        icono = wait.until(
-            EC.element_to_be_clickable(
-                (By.XPATH, "//div[@class='feed-top-gameweek']//div[@class='gameweek__icon']")
-            )
-        )
-        icono.click()
-        log("obtener_best_xi_jornadas_finalizadas: Icono de jornadas clickeado")
-        # Pequeña pausa para que aparezca el selector
-        time.sleep(0.5)
+        # Localizar el contenedor de la jornada y el icono de la flecha
+        boton_jornada = wait.until(EC.element_to_be_clickable(
+            (By.CSS_SELECTOR, "div.feed-top-gameweek button.btn.btn-sw")
+        ))
+        boton_jornada.click()
+        log("obtener_datos_liga: Botón de jornada clickeado")
+        time.sleep(2)
+
     except Exception as e:
         log(f"obtener_best_xi_jornadas_finalizadas: Error al hacer clic en el icono: {e}")
         return []
@@ -91,7 +89,7 @@ def obtener_best_xi_jornadas_finalizadas(driver, schema=None):
             # 3) Confirmar que la jornada está FINALIZADA
             try:
                 # Busca el título "Finalizada" en una section-title
-                WebDriverWait(driver, 3).until(
+                WebDriverWait(driver, 1).until(
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@class='section-title']/h3[normalize-space()='Finalizada']")
                     )
