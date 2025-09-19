@@ -18,7 +18,8 @@ def ejecutar_proceso(id_load):
     with conexion_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT fichero AS nombre_fichero, tabla, tipo_carga, "schema", incremental_field, clave_conflicto, usa_hash
+                SELECT fichero AS nombre_fichero, tabla, tipo_extraccion, tipo_carga, "schema",
+                       incremental_field, clave_conflicto, usa_hash, usa_driver
                 FROM dbo.load 
                 WHERE idload = %s
             """, (id_load,))
@@ -28,16 +29,45 @@ def ejecutar_proceso(id_load):
         log(f"No se encontró configuración para idload {id_load}")
         return
 
-    nombre_fichero, tabla, tipo_carga, schema, incremental_field, clave_conflicto, usa_hash = row
+    (nombre_fichero, tabla, tipo_extraccion, tipo_carga,
+     schema, incremental_field, clave_conflicto,
+     usa_hash, usa_driver) = row
+
     FUNCIONES_DISPONIBLES = get_funciones_disponibles()
 
     if nombre_fichero not in FUNCIONES_DISPONIBLES:
         log(f"No se encontró una función mapeada para '{nombre_fichero}'")
         return
 
+    funcion = FUNCIONES_DISPONIBLES[nombre_fichero]
+
+    # ---------------------------
+    # CASO POSTPROCESO
+    # ---------------------------
+    if tipo_extraccion == "postproceso":
+        log(f"Ejecutando postproceso: {nombre_fichero}")
+
+        if tipo_carga == "psql":
+            with conexion_db() as conn:
+                funcion(conn, schema=schema)
+            log("Postproceso SQL finalizado correctamente.")
+
+        elif tipo_carga == "accion":
+            driver = iniciar_sesion(schema=schema)
+            funcion(driver, schema=schema)
+            driver.quit()
+            log("Postproceso Selenium finalizado correctamente.")
+
+        else:
+            log(f"Tipo de carga '{tipo_carga}' no reconocido para postproceso.")
+
+        return
+
+    # ---------------------------
+    # CASO EXTRACCIÓN (scraping normal)
+    # ---------------------------
     log(f"Ejecutando extracción: {nombre_fichero}")
     driver = iniciar_sesion(schema=schema)
-    funcion = FUNCIONES_DISPONIBLES[nombre_fichero]
 
     # Ejecutar la función de scraping
     datos = funcion(driver, schema=schema)
@@ -76,7 +106,7 @@ def ejecutar_proceso(id_load):
     )
 
     driver.quit()
-    log("Proceso finalizado correctamente.")
+    log("Proceso de extracción finalizado correctamente.")
 
 
 if __name__ == "__main__":
