@@ -14,6 +14,12 @@ from LaLiga.obtener_clasificacion_liga import obtener_datos_liga
 from LaLiga.obtener_datos_jornadas_liga import obtener_datos_jornadas_liga
 from Jugadores.obtener_once_ideal import obtener_best_xi_jornadas_finalizadas
 from Jugadores.poner_mercado_todo import poner_en_venta_equipo,poner_mercado_todo
+from PostProceso.extraccion_datos_historicos import (
+    api_football_data_co_uk_jornadas,
+    api_football_data_co_uk_datos_laliga,
+    api_football_data_co_uk_jornadas_raw,
+    api_football_data_co_uk_datos_laliga_raw
+)
 
 # Diccionario base para los tipos de CSV que vas a generar
 BASE_FILENAME_CONFIG = {
@@ -70,6 +76,10 @@ def get_funciones_disponibles():
         "datos_best_xi": obtener_best_xi_jornadas_finalizadas,
         "datos_saldos": obtener_saldos,
         # PostProceso
+        "api_football_data_co_uk_jornadas": api_football_data_co_uk_jornadas,
+        "api_football_data_co_uk_datos_laliga": api_football_data_co_uk_datos_laliga,
+        "api_football_data_co_uk_jornadas_raw":api_football_data_co_uk_jornadas_raw,
+        "api_football_data_co_uk_datos_laliga_raw":api_football_data_co_uk_datos_laliga_raw,
         # Accion
         "poner_mercado_todo" : poner_en_venta_equipo,
         "poner_mercado_todo" : poner_mercado_todo
