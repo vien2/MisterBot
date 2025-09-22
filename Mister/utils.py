@@ -11,6 +11,7 @@ import pandas as pd
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import requests
 
 def añadir_hash(df, schema='dbo', tabla=''):
     columnas_excluir = {'f_carga', 'hash'}
@@ -93,21 +94,27 @@ def obtener_temporada_actual():
     return f"{inicio:02d}/{fin:02d}"
 
 def añadir_temporada(datos):
-    log(f"añadir_temporada: Iniciamos a añadir la temporada")
+    log("añadir_temporada: Iniciamos a añadir la temporada")
     temporada = obtener_temporada_actual()
+
+    def set_temporada(registro):
+        # normaliza todas las claves a minúscula para comparar
+        if not any(k.lower() == "temporada" for k in registro.keys()):
+            registro["temporada"] = temporada
+
     if isinstance(datos, dict):
-        # Si es un diccionario, se asume que cada valor es una lista de registros
         for key, registros in datos.items():
             for registro in registros:
-                registro["Temporada"] = temporada
+                set_temporada(registro)
     elif isinstance(datos, list):
-        # Si es una lista, cada elemento es un registro
         for registro in datos:
-            registro["Temporada"] = temporada
+            set_temporada(registro)
     else:
         raise TypeError("El formato de datos no es soportado (se esperaba dict o list)")
-    log(f"añadir_temporada: temporada añadida")
+
+    log("añadir_temporada: temporada añadida (si faltaba)")
     return datos
+
 
 def guardar_en_csv(datos_list, base_path, filename_config, fieldnames=None):
     """
@@ -230,3 +237,20 @@ def cerrar_popup_anuncios(driver):
     except Exception as e:
         log(f"No apareció el popup de anuncios (o ya estaba cerrado): {e}")
         return False
+    
+
+def leer_config_api(archivo='config.ini', seccion='football_data'):
+    ruta_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), archivo)
+    parser = ConfigParser()
+    parser.read(ruta_config)
+    if parser.has_section(seccion):
+        return {param[0]: param[1] for param in parser.items(seccion)}
+    else:
+        raise Exception(f'Sección {seccion} no encontrada en el archivo {archivo}')
+
+def get_api_headers():
+    cfg = leer_config_api()
+    return {"X-Auth-Token": cfg["api_key"]}
+
+def formato_temporada(api_season):
+    return f"{str(api_season)[-2:]}/{str(api_season+1)[-2:]}"

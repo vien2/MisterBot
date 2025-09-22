@@ -67,10 +67,12 @@ def ejecutar_proceso(id_load):
     # CASO EXTRACCIÓN (scraping normal)
     # ---------------------------
     log(f"Ejecutando extracción: {nombre_fichero}")
-    driver = iniciar_sesion(schema=schema)
-
-    # Ejecutar la función de scraping
-    datos = funcion(driver, schema=schema)
+    if usa_driver:
+        driver = iniciar_sesion(schema=schema)
+        datos = funcion(driver, schema=schema)
+        driver.quit()
+    else:
+        datos = funcion(None, schema=schema)
 
     # Añadir temporada
     datos = añadir_temporada(datos)
@@ -104,8 +106,7 @@ def ejecutar_proceso(id_load):
         clave_conflicto=clave_conflicto,
         hash_field="hash" if tipo_carga == "diferencial" else None
     )
-
-    driver.quit()
+    
     log("Proceso de extracción finalizado correctamente.")
 
 
