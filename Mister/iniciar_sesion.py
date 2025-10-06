@@ -5,16 +5,15 @@ from selenium.webdriver.support import expected_conditions as EC
 import configparser
 from selenium.webdriver.chrome.service import Service as ChromeService
 from utils import log,cerrar_popup_anuncios
+import chromedriver_autoinstaller
 
 def iniciar_sesion(schema=None):
     log("iniciar_sesion: Inicio de la función")
 
     config = configparser.ConfigParser()
-    config.read("C:\\Python\\Mister-bot\\Datos\\config.ini")
-    ruta_chromedriver = r"C:\Users\juan_\AppData\Local\chromedriver\chromedriver-win64\chromedriver.exe"
-    service = ChromeService(executable_path=ruta_chromedriver)
-    driver = webdriver.Chrome(service=service)
-
+    config.read("C:\\Python\\MisterBot\\Mister\\config.ini")
+    chromedriver_autoinstaller.install()
+    driver = webdriver.Chrome()
     driver.get("https://mister.mundodeportivo.com/new-onboarding/")
     wait = WebDriverWait(driver, 10)
 
