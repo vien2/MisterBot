@@ -5,4 +5,5 @@ data/
 log/
 grafico_puntos_por_jornada.html
 Querys.sql
+Querys1.sql
 mejor_modelo.h5
