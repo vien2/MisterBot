@@ -20,6 +20,8 @@ from PostProceso.extraccion_datos_historicos import (
     api_football_data_co_uk_jornadas_raw,
     api_football_data_co_uk_datos_laliga_raw
 )
+from PostProceso.backup_bbdd import backup_bbdd
+from PostProceso.cleanup_archivos import cleanup_archivos
 
 # Diccionario base para los tipos de CSV que vas a generar
 BASE_FILENAME_CONFIG = {
@@ -80,6 +82,8 @@ def get_funciones_disponibles():
         "api_football_data_co_uk_datos_laliga": api_football_data_co_uk_datos_laliga,
         "api_football_data_co_uk_jornadas_raw":api_football_data_co_uk_jornadas_raw,
         "api_football_data_co_uk_datos_laliga_raw":api_football_data_co_uk_datos_laliga_raw,
+        "backup_bbdd":backup_bbdd,
+        "cleanup_archivos": cleanup_archivos,
         # Accion
         "poner_mercado_todo" : poner_en_venta_equipo,
         "poner_mercado_todo" : poner_mercado_todo

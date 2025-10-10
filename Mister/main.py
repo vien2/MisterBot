@@ -68,7 +68,7 @@ def ejecutar_proceso(id_load):
     # ---------------------------
     log(f"Ejecutando extracción: {nombre_fichero}")
     if usa_driver:
-        driver = iniciar_sesion(schema=schema)
+        driver = iniciar_sesion(schema=schema,headless=True)
         datos = funcion(driver, schema=schema)
         driver.quit()
     else:
