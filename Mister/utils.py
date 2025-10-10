@@ -11,7 +11,14 @@ import pandas as pd
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import requests
+import gzip
+import glob
+import shlex
+import shutil
+import subprocess
+from datetime import datetime, timedelta
+import time
+import threading
 
 def añadir_hash(df, schema='dbo', tabla=''):
     columnas_excluir = {'f_carga', 'hash'}
@@ -254,3 +261,359 @@ def get_api_headers():
 
 def formato_temporada(api_season):
     return f"{str(api_season)[-2:]}/{str(api_season+1)[-2:]}"
+
+def _read_backup_config():
+    """
+    Lee config.ini:
+      - credenciales en [postgresql] (las que ya usas con psycopg2)
+      - sección opcional [Backup] para carpeta/retención/pg_dump_path
+    """
+    log("🔧 _read_backup_config: inicio")
+
+    # Credenciales como las usa tu utils.conexion_db()
+    db_cfg = leer_config_db()  # dict: host, port, database/dbname, user, password
+    log(f"🔧 _read_backup_config: credenciales leídas (keys={list(db_cfg.keys())})")
+
+    # Sección [Backup] es opcional
+    parser = ConfigParser()
+    parser.read("config.ini", encoding="utf-8")
+
+    dest_dir = "./backups"
+    retention_days = 30
+    pg_dump_path = ""
+
+    if parser.has_section("Backup"):
+        dest_dir = parser.get("Backup", "dir", fallback=dest_dir)
+        retention_days = parser.getint("Backup", "retention_days", fallback=retention_days)
+        pg_dump_path = parser.get("Backup", "pg_dump_path", fallback=pg_dump_path).strip()
+        log(f"🔧 _read_backup_config: Backup.dir={dest_dir} · retention_days={retention_days} · pg_dump_path='{pg_dump_path or '(PATH)'}'")
+    else:
+        log("ℹ️ _read_backup_config: sección [Backup] no encontrada; usando valores por defecto.")
+
+    cfg = {
+        "db": db_cfg,
+        "dest_dir": dest_dir,
+        "retention_days": retention_days,
+        "pg_dump_path": pg_dump_path,
+    }
+    log("✅ _read_backup_config: fin")
+    return cfg
+
+
+def _find_pg_dump(pg_dump_path_hint: str) -> str:
+    """
+    Localiza pg_dump:
+      1) Si viene ruta en config y existe → úsala
+      2) PATH del sistema (shutil.which)
+      3) Windows: prueba rutas típicas en Program Files
+    """
+    log("🔎 _find_pg_dump: inicio")
+
+    # 1) pista directa
+    if pg_dump_path_hint:
+        log(f"🔎 _find_pg_dump: probando pista directa '{pg_dump_path_hint}'")
+        if os.path.isfile(pg_dump_path_hint):
+            log(f"✅ _find_pg_dump: encontrado fichero '{pg_dump_path_hint}'")
+            return pg_dump_path_hint
+        if os.path.isdir(pg_dump_path_hint):
+            candidate = os.path.join(pg_dump_path_hint, "pg_dump.exe" if os.name == "nt" else "pg_dump")
+            if os.path.isfile(candidate):
+                log(f"✅ _find_pg_dump: encontrado en carpeta pista → '{candidate}'")
+                return candidate
+            else:
+                log(f"⚠️ _find_pg_dump: no existe '{candidate}' dentro de la carpeta pista")
+
+    # 2) PATH
+    exe = "pg_dump.exe" if os.name == "nt" else "pg_dump"
+    found = shutil.which(exe)
+    if found:
+        log(f"✅ _find_pg_dump: encontrado en PATH → '{found}'")
+        return found
+    else:
+        log("ℹ️ _find_pg_dump: no está en PATH")
+
+    # 3) Windows: rutas típicas
+    if os.name == "nt":
+        bases = [r"C:\Program Files\PostgreSQL", r"C:\Program Files (x86)\PostgreSQL"]
+        for base in bases:
+            for ver in ("16", "15", "14", "13", "12"):
+                cand = os.path.join(base, ver, "bin", "pg_dump.exe")
+                if os.path.isfile(cand):
+                    log(f"✅ _find_pg_dump: encontrado en ruta típica → '{cand}'")
+                    return cand
+        log("⚠️ _find_pg_dump: no se encontró en rutas típicas de Windows")
+
+    msg = "No se encontró 'pg_dump'. Añade su ruta en [Backup] pg_dump_path de config.ini o agrégalo al PATH."
+    log(f"❌ _find_pg_dump: {msg}")
+    raise FileNotFoundError(msg)
+
+
+def _ensure_dir(path: str):
+    log(f"📁 _ensure_dir: asegurando carpeta '{path}'")
+    os.makedirs(path, exist_ok=True)
+
+
+def _rotate_backups(dest_dir: str, prefix: str, retention_days: int):
+    """
+    Borra ficheros con el prefijo que sean más antiguos que N días.
+    """
+    log(f"🧹 _rotate_backups: inicio (dir='{dest_dir}', prefix='{prefix}', retention_days={retention_days})")
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    patron = os.path.join(dest_dir, f"{prefix}_*.sql.gz")
+    eliminados = 0
+
+    for fpath in glob.glob(patron):
+        try:
+            mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+            if mtime < cutoff:
+                os.remove(fpath)
+                eliminados += 1
+                log(f"🗑️  _rotate_backups: eliminado backup antiguo → {os.path.basename(fpath)} (mtime={mtime})")
+        except Exception as e:
+            log(f"⚠️ _rotate_backups: no se pudo eliminar {fpath}: {e}")
+
+    log(f"✅ _rotate_backups: fin (eliminados={eliminados})")
+
+
+def _run_pg_dump(pg_dump, host, port, dbname, user, password, out_gz_path):
+    """
+    Ejecuta pg_dump (formato 'plain') y comprime stdout a GZip.
+    Lee stderr en un hilo aparte para evitar deadlocks cuando -v genera mucho output.
+    """
+    cmd = [
+        pg_dump,
+        "-h", host,
+        "-p", str(port),
+        "-U", user,
+        "-d", dbname,
+        "-v",          # verbose (va a stderr)
+        "-w",          # no prompt password (usamos env var)
+        "-F", "p",     # 'plain'
+    ]
+
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+
+    log("▶️ _run_pg_dump: ejecutando → " + " ".join(shlex.quote(x) for x in cmd))
+    t0 = time.time()
+
+    # Para capturar y evitar bloqueo, leeremos stderr en otro hilo.
+    stderr_lines = []
+    def _drain_stderr(stream):
+        try:
+            # texto y lectura línea a línea para log progresivo
+            for line in iter(stream.readline, ''):
+                line = line.rstrip()
+                if line:
+                    stderr_lines.append(line)
+                    # log opcional por cada objeto (reduce si es muy ruidoso)
+                    if ("dumping" in line.lower()) or ("saving" in line.lower()):
+                        log(f"pg_dump: {line}")
+        except Exception as e:
+            log(f"⚠️ _run_pg_dump: error leyendo stderr: {e}")
+
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        text=True,          # streams en texto
+        bufsize=1           # line-buffered
+    ) as proc, gzip.open(out_gz_path, "wb") as gz_out:
+
+        # Arranca hilo para drenar stderr
+        assert proc.stderr is not None
+        t_err = threading.Thread(target=_drain_stderr, args=(proc.stderr,), daemon=True)
+        t_err.start()
+
+        # Lee stdout en binario (usamos el buffer de texto; reabrimos stream binario)
+        total_bytes = 0
+        last_log = t0
+        try:
+            # aunque text=True, podemos leer bytes desde el descriptor del proceso:
+            raw_stdout = proc.stdout
+            assert raw_stdout is not None
+
+            # En text=True readline es texto; aquí queremos chunks eficientemente:
+            # usamos el buffer subyacente para obtener bytes si está disponible
+            # Si no, simplemente iteramos por bloques del archivo de texto y re-encode
+            while True:
+                chunk = raw_stdout.buffer.read(1024 * 256) if hasattr(raw_stdout, "buffer") else raw_stdout.read(1024 * 256)
+                if not chunk:
+                    break
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8", errors="ignore")
+                gz_out.write(chunk)
+                total_bytes += len(chunk)
+
+                # Log progresivo cada ~5s
+                now = time.time()
+                if now - last_log >= 5:
+                    log(f"⏳ _run_pg_dump: {total_bytes/1_048_576:0.1f} MiB leídos…")
+                    last_log = now
+
+        except Exception as e:
+            log(f"❌ _run_pg_dump: excepción durante el volcado: {e}. Matando proceso…")
+            proc.kill()
+            t_err.join(timeout=1)
+            raise e
+
+        # Espera a que termine el proceso y el hilo de stderr
+        ret = proc.wait()
+        t_err.join(timeout=5)
+        elapsed = time.time() - t0
+
+        if ret != 0:
+            err_txt = out_gz_path.replace(".sql.gz", ".stderr.txt")
+            try:
+                with open(err_txt, "w", encoding="utf-8") as f:
+                    f.write("\n".join(stderr_lines))
+                log(f"❌ _run_pg_dump: pg_dump returncode={ret}. STDERR → {err_txt}")
+            except Exception as e:
+                log(f"⚠️ _run_pg_dump: no se pudo guardar STDERR: {e}")
+            raise RuntimeError(f"pg_dump salió con código {ret}. Revisa {err_txt}.")
+
+    # Métricas finales
+    try:
+        size_gz = os.path.getsize(out_gz_path)
+        log(f"✅ _run_pg_dump: OK en {elapsed:0.1f}s · SQL sin comprimir≈{total_bytes/1_048_576:0.1f} MiB · archivo='{out_gz_path}' ({size_gz/1_048_576:0.1f} MiB gz)")
+    except Exception as e:
+        log(f"⚠️ _run_pg_dump: OK pero no se pudo obtener tamaño del archivo: {e}")
+
+def _read_cleanup_config():
+    parser = ConfigParser()
+    parser.read("config.ini", encoding="utf-8")
+
+    # días (por defecto 30)
+    days = 30
+    if parser.has_section("Cleanup"):
+        days = parser.getint("Cleanup", "days", fallback=days)
+
+    # logs_dir
+    logs_dir = "./log"
+    if parser.has_section("Cleanup"):
+        logs_dir = parser.get("Cleanup", "logs_dir", fallback=logs_dir)
+
+    # ok/ko/data csv
+    ok_csv_dir = parser.get("Cleanup", "ok_csv_dir", fallback="./ok/csv") if parser.has_section("Cleanup") else "./ok/csv"
+    ko_csv_dir = parser.get("Cleanup", "ko_csv_dir", fallback="./ko/csv") if parser.has_section("Cleanup") else "./ko/csv"
+    data_csv_dir = parser.get("Cleanup", "data_csv_dir", fallback="./data/csv") if parser.has_section("Cleanup") else "./data/csv"
+
+    # base_csv (el que ya usas para guardar tus outputs)
+    try:
+        base_csv = get_base_path_from_ini()
+    except Exception:
+        base_csv = None
+
+    # backups dir desde [Backup]
+    backups_dir = None
+    if parser.has_section("Backup"):
+        backups_dir = parser.get("Backup", "dir", fallback="").strip() or None
+
+    # rutas extra
+    extra_dirs = []
+    if parser.has_section("Cleanup"):
+        extra_raw = parser.get("Cleanup", "extra_dirs", fallback="").strip()
+        if extra_raw:
+            extra_dirs = [s.strip() for s in extra_raw.split(";") if s.strip()]
+
+    # set final (evita duplicados y None)
+    candidates = {
+        logs_dir,
+        ok_csv_dir,
+        ko_csv_dir,
+        data_csv_dir,
+        "./data",       # también limpia ficheros sueltos aquí
+        base_csv or "",
+        backups_dir or "",
+    }
+    # añade extras
+    candidates.update(extra_dirs)
+    # filtra vacíos
+    target_dirs = [d for d in candidates if d]
+
+    return {
+        "days": days,
+        "dirs": target_dirs,
+    }
+
+
+def _is_file_older_than(path, cutoff_dt: datetime) -> bool:
+    try:
+        mtime = os.path.getmtime(path)
+        return datetime.fromtimestamp(mtime) < cutoff_dt
+    except Exception:
+        return False
+
+
+def _iter_files_in_dir(root_dir: str):
+    """
+    Itera SOLO ficheros (no carpetas) dentro de root_dir y subcarpetas.
+    """
+    # Usa glob recursivo
+    pattern = os.path.join(root_dir, "**", "*")
+    for f in glob.iglob(pattern, recursive=True):
+        if os.path.isfile(f):
+            yield f
+
+
+def _safe_to_delete(path: str) -> bool:
+    """
+    Reglas de seguridad mínimas:
+     - No borrar archivos ocultos del sistema (.git, .svn) ni .gitkeep
+     - No borrar ficheros .stderr.txt generados por procesos en curso en los últimos 10 minutos
+       (por si están siendo escritos ahora mismo)
+    """
+    name = os.path.basename(path).lower()
+    if name in (".gitkeep",):
+        return False
+    if name.startswith(".git") or name.startswith(".svn"):
+        return False
+    # evita borrar .stderr.txt demasiado recientes
+    if name.endswith(".stderr.txt"):
+        try:
+            if (time.time() - os.path.getmtime(path)) < 600:  # 10 minutos
+                return False
+        except Exception:
+            pass
+    return True
+
+
+def _delete_old_files_in_dir(root_dir: str, days: int) -> dict:
+    """
+    Borra ficheros con mtime < hoy - days.
+    Devuelve dict resumen con contadores.
+    """
+    summary = {
+        "dir": root_dir,
+        "checked": 0,
+        "deleted": 0,
+        "errors": 0,
+    }
+    if not os.path.isdir(root_dir):
+        log(f"ℹ️ cleanup: directorio no existe, se omite → {root_dir}")
+        return summary
+
+    cutoff_dt = datetime.now() - timedelta(days=days)
+    log(f"🧹 cleanup: procesando '{root_dir}' (cutoff={cutoff_dt:%Y-%m-%d %H:%M:%S}, days={days})")
+
+    for f in _iter_files_in_dir(root_dir):
+        summary["checked"] += 1
+        if not _safe_to_delete(f):
+            continue
+        try:
+            if _is_file_older_than(f, cutoff_dt):
+                try:
+                    os.remove(f)
+                    summary["deleted"] += 1
+                    log(f"🗑️  cleanup: eliminado → {f}")
+                except Exception as e:
+                    summary["errors"] += 1
+                    log(f"⚠️ cleanup: error eliminando '{f}': {e}")
+        except Exception as e:
+            summary["errors"] += 1
+            log(f"⚠️ cleanup: error revisando '{f}': {e}")
+
+    log(f"✅ cleanup resumen '{root_dir}': revisados={summary['checked']} · borrados={summary['deleted']} · errores={summary['errors']}")
+    return summary
