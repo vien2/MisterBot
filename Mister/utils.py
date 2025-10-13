@@ -617,3 +617,29 @@ def _delete_old_files_in_dir(root_dir: str, days: int) -> dict:
 
     log(f"✅ cleanup resumen '{root_dir}': revisados={summary['checked']} · borrados={summary['deleted']} · errores={summary['errors']}")
     return summary
+
+def registrar_ejecucion_carga(id_load: int, estado: str):
+    """
+    Inserta una fila en dbo."LoadExecutions" con:
+      - idLoad: id de la carga
+      - f_execution: texto con current_timestamp (precisión ms)
+      - estado: 'OK' o 'KO'
+      - f_carga: timestamp con current_timestamp
+    """
+    try:
+        with conexion_db() as conn:
+            with conn.cursor() as cur:
+                # Inserta registro
+                cur.execute("""
+                    INSERT INTO dbo."LoadExecutions" ("idLoad","f_execution","estado","f_carga")
+                    VALUES (
+                        %s,
+                        to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS.MS'),
+                        %s,
+                        CURRENT_TIMESTAMP
+                    );
+                """, (id_load, estado))
+            conn.commit()
+        log(f'registrar_ejecucion_carga: idLoad={id_load} estado={estado}')
+    except Exception as e:
+        log(f'registrar_ejecucion_carga: ERROR al registrar idLoad={id_load} → {e}')
