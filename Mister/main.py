@@ -13,6 +13,7 @@ from iniciar_sesion import iniciar_sesion
 
 
 def ejecutar_proceso(id_load):
+    estado = 'KO'
     try:
         log(f"Inicio de proceso para ID Load: {id_load}")
         base_path = get_base_path_from_ini()
@@ -99,7 +100,7 @@ def ejecutar_proceso(id_load):
                 clave_conflicto = json.loads(clave_conflicto)
 
         # Carga en PostgreSQL
-        estado_ok = cargar_csv_postgresql(
+        cargar_csv_postgresql(
             ruta_csv=ruta_csv,
             schema=schema,
             tabla=tabla,
@@ -108,21 +109,14 @@ def ejecutar_proceso(id_load):
             clave_conflicto=clave_conflicto,
             hash_field="hash" if tipo_carga == "diferencial" else None
         )
-        
-        # Registro de la ejecución SIEMPRE (último paso)
-        registrar_ejecucion_carga(id_load, 'OK' if estado_ok else 'KO')
-
-        if estado_ok:
-            log("Proceso de extracción finalizado correctamente.")
-        else:
-            log("Proceso de extracción finalizado con errores (ver KO).")
-
+        estado = "OK"
     except Exception as e:
         log(f"Error en la ejecución: {e}")
+    finally:
         try:
-            registrar_ejecucion_carga(id_load, 'KO')
-        finally:
-            raise
+            registrar_ejecucion_carga(id_load, estado)
+        except Exception as e:
+            log(f"registrar_ejecucion_carga: fallo al registrar → {e}")
 
 
 if __name__ == "__main__":

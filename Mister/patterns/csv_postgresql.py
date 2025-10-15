@@ -110,7 +110,6 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
         os.makedirs(os.path.dirname(destino_ok), exist_ok=True)
         shutil.move(ruta_csv, destino_ok)
         log(f"Carga exitosa. Archivo movido a: {destino_ok}")
-        return True
 
     except Exception as e:
         destino_ko = ruta_csv.replace("data/", "data/ko/")
@@ -118,4 +117,3 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
         shutil.move(ruta_csv, destino_ko)
         log(f"Error durante la carga: {e}")
         log(f"Archivo movido a: {destino_ko}")
-        return False
