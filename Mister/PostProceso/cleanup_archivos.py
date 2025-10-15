@@ -1,32 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Postproceso: limpieza de archivos antiguos en varias rutas.
-Borra ficheros con mtime < hoy - N días (por defecto 30).
-Rutas por defecto:
- - Backups.dir (si existe en [Backup])
- - paths.base_csv (si existe en [paths])
- - ./ok/csv
- - ./ko/csv
- - ./log
- - ./data/csv
- - ./data  (solo ficheros sueltos)
-Se pueden añadir rutas extra en [Cleanup] extra_dirs (separadas por ';').
-
-Config opcional en config.ini:
-[Cleanup]
-days=30
-logs_dir=./log
-ok_csv_dir=./ok/csv
-ko_csv_dir=./ko/csv
-data_csv_dir=./data/csv
-extra_dirs=C:\otra\carpeta;./otra_relativa
-
-[Backup]
-dir=... (ya lo usas)
-
-[paths]
-base_csv=... (ya lo usas)
-"""
 from utils import log,_read_cleanup_config,_delete_old_files_in_dir
 
 def cleanup_archivos(conn, schema=None):

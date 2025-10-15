@@ -6,7 +6,6 @@ from contextlib import contextmanager
 import psycopg2
 import hashlib
 import unicodedata
-import re
 import pandas as pd
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -168,19 +167,16 @@ def log(message):
     with open(file_name, "a", encoding="utf-8") as f:
         f.write(log_line)
 
-def leer_config_db(archivo='config.ini', seccion='postgresql'):
-    """Lee la configuración de la base de datos desde config.ini"""
+def leer_config_db(archivo='config.ini', seccion=None):
+    if seccion is None:
+        seccion = os.getenv('POSTGRES_SECTION', 'postgresql')  # <- NUEVO
     ruta_config = os.path.join(os.path.dirname(os.path.abspath(__file__)), archivo)
     log(f"leer_config_db: Buscando config.ini en {os.path.abspath(archivo)}")
     parser = ConfigParser()
-    archivos_leidos = parser.read(ruta_config)
-    log(f"conexion_db: Archivos leídos: {archivos_leidos}")
-
-
+    parser.read(ruta_config)
     if parser.has_section(seccion):
-        return {param[0]: param[1] for param in parser.items(seccion)}
-    else:
-        raise Exception(f'Sección {seccion} no encontrada en el archivo {archivo}')
+        return {k: v for k, v in parser.items(seccion)}
+    raise Exception(f'Sección {seccion} no encontrada en {archivo}')
 
 @contextmanager
 def conexion_db():
@@ -631,7 +627,7 @@ def registrar_ejecucion_carga(id_load: int, estado: str):
             with conn.cursor() as cur:
                 # Inserta registro
                 cur.execute("""
-                    INSERT INTO dbo."LoadExecutions" ("idLoad","f_execution","estado","f_carga")
+                    INSERT INTO dbo.loadexecutions (idload,f_execution,estado,f_carga)
                     VALUES (
                         %s,
                         to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS.MS'),
