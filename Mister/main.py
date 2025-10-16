@@ -22,7 +22,7 @@ def ejecutar_proceso(id_load):
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT fichero AS nombre_fichero, tabla, tipo_extraccion, tipo_carga, "schema",
-                        incremental_field, clave_conflicto, usa_hash, usa_driver
+                           incremental_field, clave_conflicto, usa_hash, usa_driver
                     FROM dbo.load 
                     WHERE idload = %s
                 """, (id_load,))
@@ -30,17 +30,17 @@ def ejecutar_proceso(id_load):
 
         if not row:
             log(f"No se encontró configuración para idload {id_load}")
-            return
+            return  # el finally registrará estado=KO
 
         (nombre_fichero, tabla, tipo_extraccion, tipo_carga,
-        schema, incremental_field, clave_conflicto,
-        usa_hash, usa_driver) = row
+         schema, incremental_field, clave_conflicto,
+         usa_hash, usa_driver) = row
 
         FUNCIONES_DISPONIBLES = get_funciones_disponibles()
 
         if nombre_fichero not in FUNCIONES_DISPONIBLES:
             log(f"No se encontró una función mapeada para '{nombre_fichero}'")
-            return
+            return  # el finally registrará estado=KO
 
         funcion = FUNCIONES_DISPONIBLES[nombre_fichero]
 
@@ -51,29 +51,44 @@ def ejecutar_proceso(id_load):
             log(f"Ejecutando postproceso: {nombre_fichero}")
 
             if tipo_carga == "psql":
+                # ▲ Si todo va bien, marcamos OK antes de salir
                 with conexion_db() as conn:
                     funcion(conn, schema=schema)
                 log("Postproceso SQL finalizado correctamente.")
+                estado = "OK"  # ▲
+                return  # el finally registrará OK
 
             elif tipo_carga == "accion":
+                # ▲ Aseguramos cierre del driver aunque falle el postproceso
                 driver = iniciar_sesion(schema=schema)
-                funcion(driver, schema=schema)
-                driver.quit()
-                log("Postproceso Selenium finalizado correctamente.")
+                try:
+                    funcion(driver, schema=schema)
+                    log("Postproceso Selenium finalizado correctamente.")
+                    estado = "OK"  # ▲
+                finally:
+                    try:
+                        driver.quit()
+                    except Exception as e:
+                        log(f"Warning al cerrar driver: {e}")
+                return  # el finally registrará OK o KO según lo anterior
 
             else:
                 log(f"Tipo de carga '{tipo_carga}' no reconocido para postproceso.")
-
-            return
+                return  # el finally registrará estado=KO
 
         # ---------------------------
         # CASO EXTRACCIÓN (scraping normal)
         # ---------------------------
         log(f"Ejecutando extracción: {nombre_fichero}")
         if usa_driver:
-            driver = iniciar_sesion(schema=schema,headless=True)
-            datos = funcion(driver, schema=schema)
-            driver.quit()
+            driver = iniciar_sesion(schema=schema, headless=True)
+            try:
+                datos = funcion(driver, schema=schema)
+            finally:
+                try:
+                    driver.quit()
+                except Exception as e:
+                    log(f"Warning al cerrar driver: {e}")
         else:
             datos = funcion(None, schema=schema)
 
@@ -95,9 +110,8 @@ def ejecutar_proceso(id_load):
         guardar_en_csv(datos_lista, base_path, filename_config)
 
         # Clave conflicto como lista
-        if clave_conflicto:
-            if isinstance(clave_conflicto, str):
-                clave_conflicto = json.loads(clave_conflicto)
+        if clave_conflicto and isinstance(clave_conflicto, str):
+            clave_conflicto = json.loads(clave_conflicto)
 
         # Carga en PostgreSQL
         cargar_csv_postgresql(
@@ -112,6 +126,7 @@ def ejecutar_proceso(id_load):
         estado = "OK"
     except Exception as e:
         log(f"Error en la ejecución: {e}")
+        # estado se queda en 'KO'
     finally:
         try:
             registrar_ejecucion_carga(id_load, estado)
