@@ -119,12 +119,12 @@ def iniciar_sesion(schema=None, headless=True):
 
         # En el VPS el botón es 'Next' con clase .btn--primary (según tu HTML dump)
         # pulsamos hasta 4 veces si aparece
-        #try:
-        #    for i in range(4):
-        #        _robust_click(driver, (By.CSS_SELECTOR, ".btn.btn--primary"), 6)  # Next/Siguiente
-        #        time.sleep(0.6)
-        #except Exception:
-        #    pass
+        try:
+            for i in range(4):
+                _robust_click(driver, (By.CSS_SELECTOR, ".btn.btn--primary"), 6)  # Next/Siguiente
+                time.sleep(0.6)
+        except Exception:
+            pass
         #_dump_state(driver, "onboard")
 
         # 2) “Continuar con Email” (ES/EN) o fallback a /login
