@@ -102,113 +102,230 @@ def obtener_datos_jugador(driver, schema=None):
     datos_de_jugadores = []
     urls_jugadores = obtener_urls_desde_db(schema)
 
+    W = WebDriverWait(driver, 8)
+
+    def _safe_text(el):
+        try:
+            return el.text.strip()
+        except:
+            return ""
+
+    def _safe_attr(el, attr):
+        try:
+            return el.get_attribute(attr)
+        except:
+            return None
+
+    def _team_from_href(href: str|None) -> str|None:
+        if not href:
+            return None
+        href = href.strip().rstrip("/")
+        # prioriza /teams/
+        if "/teams/" in href:
+            slug = href.split("/teams/")[-1].split("/")[0]
+        else:
+            parts = href.split("/")
+            slug = parts[-1] if parts else ""
+        slug = slug.strip()
+        if not slug:
+            return None
+        return slug.replace("-", " ").title()
+
     for player_url in urls_jugadores:
         datos_jugador = {}
         driver.get(player_url)
         log(f"Accediendo a perfil: {player_url}")
 
         try:
-            # Nombre y apellido
-            name = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .name").text.strip()
-            surname = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .surname").text.strip()
+            # Espera cabecera del perfil
+            header = W.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".player-profile-header")))
+            # Nombre y apellido (algunas páginas no traen .surname)
+            name_el = header.find_element(By.CSS_SELECTOR, ".name")
+            name = _safe_text(name_el)
 
-            # Equipo
-            team_element = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .team-position a")
-            equipo = team_element.get_attribute("href").split("/")[-1].replace("-", " ").title()
+            try:
+                surname_el = header.find_element(By.CSS_SELECTOR, ".surname")
+                surname = _safe_text(surname_el)
+            except:
+                surname = ""
+
+            # ===== Equipo (robusto) =====
+            equipo = None
+
+            # 1) Enlace directo dentro de la cabecera
+            try:
+                link = header.find_element(By.CSS_SELECTOR, ".team-position a")
+                equipo = _team_from_href(_safe_attr(link, "href")) or equipo
+            except:
+                pass
+
+            # 2) Cualquier enlace a /teams/ en la página
+            if not equipo:
+                try:
+                    link2 = driver.find_element(By.CSS_SELECTOR, "a[href*='/teams/']")
+                    equipo = _team_from_href(_safe_attr(link2, "href")) or equipo
+                except:
+                    pass
+
+            # 3) Migas/breadcrumb
+            if not equipo:
+                try:
+                    bc = driver.find_element(By.CSS_SELECTOR, ".breadcrumb a[href*='/teams/']")
+                    equipo = _team_from_href(_safe_attr(bc, "href")) or equipo
+                except:
+                    pass
+
+            # 4) Texto plano cerca de la posición (ej. "Betis · MC")
+            if not equipo:
+                try:
+                    tp = header.find_element(By.CSS_SELECTOR, ".team-position")
+                    txt = _safe_text(tp)
+                    if "·" in txt:
+                        equipo_txt = txt.split("·", 1)[0].strip()
+                    else:
+                        equipo_txt = txt.strip()
+                    equipo = equipo_txt.title() if equipo_txt else None
+                except:
+                    pass
+
+            if not equipo:
+                equipo = "Desconocido"
+
         except Exception as e:
             log(f"Error obteniendo nombre, apellido o equipo: {e}")
+            # no continúes: sin cabecera suele significar que no cargó la página
             continue
 
+        # Posición
         try:
-            # Posición
             position_element = driver.find_element(By.CSS_SELECTOR, ".player-profile-header .player-position")
-            position_number = position_element.get_attribute("data-position")
+            position_number = _safe_attr(position_element, "data-position")
             position_mapping = {'1': 'PT', '2': 'DF', '3': 'MC', '4': 'DL'}
-            position = position_mapping.get(position_number, 'Desconocida')
+            position = position_mapping.get((position_number or "").strip(), 'Desconocida')
         except Exception as e:
             log(f"Error obteniendo posición: {e}")
             position = 'Desconocida'
+
+        player_id = player_url.split("/players/")[1].split("/")[0]
 
         datos_jugador['Nombre'] = name
         datos_jugador['Apellido'] = surname
         datos_jugador['Equipo'] = equipo
         datos_jugador['Posicion'] = position
-        player_id = player_url.split("/players/")[1].split("/")[0]
         datos_jugador['id_jugador'] = player_id
+        datos_jugador['Temporada'] = temporada
 
-        # Estadísticas principales
+        # Estadísticas
         try:
             stats_wrapper = driver.find_element(By.CLASS_NAME, 'player-stats-wrapper')
             stats_items = stats_wrapper.find_elements(By.CLASS_NAME, 'item')
             stats_dict = {}
             for item in stats_items:
-                label = item.find_element(By.CLASS_NAME, 'label').text.strip()
-                value = item.find_element(By.CLASS_NAME, 'value').text.strip()
-                stats_dict[label] = value
+                label = _safe_text(item.find_element(By.CLASS_NAME, 'label'))
+                value = _safe_text(item.find_element(By.CLASS_NAME, 'value'))
+                if label:
+                    stats_dict[label] = value
 
-            datos_jugador['Valor'] = stats_dict.get('Valor')
-            datos_jugador['Clausula'] = stats_dict.get('Cláusula', '')
-            datos_jugador['Puntos'] = stats_dict.get('Puntos')
-            datos_jugador['Media'] = stats_dict.get('Media')
-            datos_jugador['Partidos'] = stats_dict.get('Partidos')
-            datos_jugador['Goles'] = stats_dict.get('Goles')
-            datos_jugador['Tarjetas'] = stats_dict.get('Tarjetas')
+            datos_jugador['Valor']     = stats_dict.get('Valor')
+            datos_jugador['Clausula']  = stats_dict.get('Cláusula', '')
+            datos_jugador['Puntos']    = stats_dict.get('Puntos')
+            datos_jugador['Media']     = stats_dict.get('Media')
+            datos_jugador['Partidos']  = stats_dict.get('Partidos')
+            datos_jugador['Goles']     = stats_dict.get('Goles')
+            datos_jugador['Tarjetas']  = stats_dict.get('Tarjetas')
         except Exception as e:
             log(f"Error obteniendo estadísticas de {name}: {e}")
 
-        # Historial de movimientos (fichajes)
+        # -------- Propietario / Fecha / Precio --------
+        propietario = None
+        fecha = ""
+        precio = ""
+
+        def _norm(s: str) -> str:
+            return " ".join((s or "").strip().split())
+
+        owner_p = None
         try:
-            historial_boxes = driver.find_elements(By.CLASS_NAME, "box-records")
-            movimientos = []
-            for box in historial_boxes:
-                lis = box.find_elements(By.TAG_NAME, "li")
-                for li in lis:
-                    texto = li.text.strip()
-                    if "· Fichaje" in texto and "De" in texto and "a" in texto:
-                        movimientos.append(li)
+            # Espera corta a que aparezcan las notices (si existen)
+            try:
+                WebDriverWait(driver, 3).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".player-notices"))
+                )
+            except:
+                pass
 
-            if movimientos:
-                ultimo_mov = movimientos[0]
-                left = ultimo_mov.find_element(By.CLASS_NAME, "left")
-                right = ultimo_mov.find_element(By.CLASS_NAME, "right")
-
-                fecha = left.find_element(By.CLASS_NAME, "label").text.strip()
-                texto_valor = left.find_element(By.CLASS_NAME, "value").text.strip()
-                precio = right.text.strip()
-
-                match = re.search(r'De\s+(.*?)\s+a\s+(.*)', texto_valor)
-                if match:
-                    datos_jugador['Propietario'] = match.group(2).strip()
-                else:
-                    datos_jugador['Propietario'] = "Jugador libre"
-
-                datos_jugador['Fecha'] = fecha
-                datos_jugador['Precio'] = precio
-            else:
-                datos_jugador['Propietario'] = "Jugador libre"
-                datos_jugador['Fecha'] = ""
-                datos_jugador['Precio'] = ""
+            # Recorre TODAS las <p> dentro de .player-notices .box
+            for p in driver.find_elements(By.CSS_SELECTOR, ".player-notices .box p"):
+                txt = _norm(p.text)
+                # Nos vale exactamente el patrón "De <strong>Usuario</strong>" (con o sin resto de frase)
+                if not txt.startswith("De "):
+                    continue
+                # Debe tener <strong> (el nombre del propietario está ahí)
+                strongs = p.find_elements(By.TAG_NAME, "strong")
+                if not strongs:
+                    continue
+                owner_p = p
+                propietario = _norm(strongs[0].getText() if hasattr(strongs[0], "getText") else strongs[0].text)
+                # Si además trae "fichado/cedido el ... por NNN", extrae fecha/precio
+                m = re.search(r"(fichado|cedido)\s+el\s+(.+?)\s+por\s+([\d\.\,]+)", txt, re.IGNORECASE)
+                if m:
+                    fecha = _norm(m.group(2))
+                    precio = _norm(m.group(3))
+                break
         except Exception as e:
-            log(f"Error extrayendo propietario: {e}")
-            datos_jugador['Propietario'] = "Jugador libre"
-            datos_jugador['Fecha'] = ""
-            datos_jugador['Precio'] = ""
+            log(f"Error buscando notice de propietario: {e}")
 
-        # Alertas (player-notices)
+        # Fallback SOLO si no hemos encontrado propietario en notices
+        if not propietario:
+            try:
+                movimientos = []
+                for box in driver.find_elements(By.CLASS_NAME, "box-records"):
+                    for li in box.find_elements(By.TAG_NAME, "li"):
+                        texto = _norm(li.text)
+                        if ("Fichaje" in texto) and ("De " in texto) and (" a " in texto):
+                            movimientos.append(li)
+                if movimientos:
+                    ultimo_mov = movimientos[0]
+                    left = ultimo_mov.find_element(By.CLASS_NAME, "left")
+                    right = ultimo_mov.find_element(By.CLASS_NAME, "right")
+                    fecha = _norm(left.find_element(By.CLASS_NAME, "label").text)
+                    texto_valor = _norm(left.find_element(By.CLASS_NAME, "value").text)  # "De X a Y"
+                    precio = _norm(right.text)
+                    m2 = re.search(r"De\s+(.*?)\s+a\s+(.*)", texto_valor, re.IGNORECASE)
+                    if m2:
+                        propietario = _norm(m2.group(2))
+            except Exception as e:
+                log(f"Error extrayendo propietario desde historial: {e}")
+
+        # Normalización
+        if not propietario or propietario.strip() == "":
+            propietario = "Jugador libre"
+        elif propietario.strip().lower() == "mister":
+            propietario = "Jugador libre"
+
+        precio_num = re.sub(r"[^\d]", "", precio) if precio else ""
+
+        datos_jugador['Propietario'] = propietario
+        datos_jugador['Fecha'] = fecha
+        datos_jugador['Precio'] = precio
+        datos_jugador['Precio_num'] = precio_num
+
+        # -------- Alertas (excluye la caja de propietario) --------
         try:
-            notices_box = driver.find_elements(By.CSS_SELECTOR, ".player-notices .box")
-            if not notices_box:
-                datos_jugador['Alerta'] = "Jugador sin alertas"
-            else:
-                alertas = []
-                for box in notices_box:
-                    texto = " ".join(box.text.strip().split())
-                    if texto:
-                        alertas.append(texto)
-                datos_jugador['Alerta'] = " | ".join(alertas)
+            alertas = []
+            for box in driver.find_elements(By.CSS_SELECTOR, ".player-notices .box"):
+                # si esta box contiene el <p> que usamos para propietario, la saltamos
+                p_list = box.find_elements(By.TAG_NAME, "p")
+                if owner_p is not None and p_list and p_list[0] == owner_p:
+                    continue
+                txt = _norm(box.text)
+                if txt:
+                    alertas.append(txt)
+            datos_jugador['Alerta'] = " | ".join(alertas) if alertas else "Jugador sin alertas"
         except Exception as e:
             log(f"Error extrayendo alertas: {e}")
             datos_jugador['Alerta'] = "Jugador sin alertas"
+
 
         datos_de_jugadores.append(datos_jugador)
         log(f"Jugador procesado: {datos_jugador}")
