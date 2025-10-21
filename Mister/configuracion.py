@@ -23,6 +23,7 @@ from PostProceso.extraccion_datos_historicos import (
 from PostProceso.backup_bbdd import backup_bbdd
 from PostProceso.cleanup_archivos import cleanup_archivos
 from Prediccion.RedNeuronal.Red_Neuronal_1X2_con_softmax import post_neuronal_1x2
+from Robo.robo_jugador import robo_jugador
 
 # Diccionario base para los tipos de CSV que vas a generar
 BASE_FILENAME_CONFIG = {
@@ -86,6 +87,7 @@ def get_funciones_disponibles():
         "backup_bbdd":backup_bbdd,
         "cleanup_archivos": cleanup_archivos,
         "red_neuronal_softmax_1X2": post_neuronal_1x2,
+        "robo_jugador": robo_jugador,
         # Accion
         "poner_mercado_todo" : poner_en_venta_equipo,
         "poner_mercado_todo" : poner_mercado_todo
