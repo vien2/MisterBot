@@ -32,7 +32,7 @@ def _dump_state(driver, prefix):
             f.write(driver.page_source)
     except: pass
 
-def _build_driver(headless=True):
+def _build_driver(headless=False):
     opts = Options()
     if headless:
         opts.add_argument("--headless=new")
@@ -94,7 +94,7 @@ def _aceptar_cookies(driver):
         except: pass
 # ------------------------------------------------------
 
-def iniciar_sesion(schema=None, headless=True):
+def iniciar_sesion(schema=None, headless=False):
     log("iniciar_sesion: Inicio de la función")
 
     # Cargar config
@@ -168,7 +168,6 @@ def iniciar_sesion(schema=None, headless=True):
             cerrar_popup_anuncios(driver)
         except Exception:
             pass
-
         # 5) Seleccionar liga si procede
         if schema:
             log(f"Buscando liga correspondiente al schema '{schema}'...")
