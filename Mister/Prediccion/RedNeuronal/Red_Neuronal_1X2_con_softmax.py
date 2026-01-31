@@ -18,7 +18,7 @@ from patterns.df_postgresql import cargar_dataframe_postgresql
 # CONFIGURACIÓN
 # ------------------------ #
 TEMPORADAS_HIST = ['23/24', '24/25', '25/26']
-TEMPORADA_OBJETIVO = '25/26'  # puedes parametrizarla si lo prefieres
+TEMPORADA_OBJETIVO = '25/26'
 
 # ------------------------ #
 # CONSULTAS
@@ -59,19 +59,20 @@ def _query_partidos(temporada: str) -> str:
     """
 
 def _query_proxima_jornada(temporada_objetivo: str) -> str:
-    # raw f-string para que \d y \s no generen SyntaxWarning
+    # 1. Buscamos la jornada MINIMA donde falten más de 2 partidos.
+    # Esto salta la jornada 16 (solo falta 1) y salta la 17 (faltan 0).
     return rf"""
-    WITH jornadas AS (
+    WITH jornadas_status AS (
         SELECT jornada::integer,
-               COUNT(*) AS partidos,
+               COUNT(*) AS partidos_totales,
                SUM(CASE WHEN resultado ~ '^\d+\s*[-·]\s*\d+$' THEN 1 ELSE 0 END) AS jugados
         FROM chavalitos.jornadas_liga
         WHERE temporada = '{temporada_objetivo}'
         GROUP BY jornada
     )
     SELECT MIN(jornada) AS proxima_jornada
-    FROM jornadas
-    WHERE jugados < partidos;
+    FROM jornadas_status
+    WHERE (partidos_totales - jugados) > 2; 
     """
 
 # ------------------------ #
@@ -96,112 +97,107 @@ def _crear_modelo(input_dim: int, output_dim: int = 3):
 # ENTRYPOINT POSTPROCESO
 # ------------------------ #
 def post_neuronal_1x2(conn, schema=None):
-    """
-    Postproceso tipo 'psql' (sin Selenium). Tu main llamará:
-       funcion(conn, schema=schema)
-    """
-    _ = schema  # reservado para futuro
+    _ = schema
     log("post_neuronal_1x2: inicio")
 
     # --- LECTURA DE DATOS ---
     log(f"Lectura histórica temporadas: {TEMPORADAS_HIST} | objetivo: {TEMPORADA_OBJETIVO}")
     dfs = [pd.read_sql(_query_partidos(temp), conn) for temp in TEMPORADAS_HIST]
-    # filtrar vacíos para evitar FutureWarning en concat
     dfs = [d for d in dfs if d is not None and not d.empty]
+    
     if not dfs:
-        log("⚠️ No hay datos históricos (todas las consultas vacías). Salgo sin grabar.")
+        log("⚠️ No hay datos históricos. Salgo.")
         return
     df_partidos = pd.concat(dfs, ignore_index=True, sort=False)
 
-    proxima_jornada = pd.read_sql(_query_proxima_jornada(TEMPORADA_OBJETIVO), conn).iloc[0]['proxima_jornada']
+    # --- OBTENER PROXIMA JORNADA REAL ---
+    try:
+        proxima_jornada = pd.read_sql(_query_proxima_jornada(TEMPORADA_OBJETIVO), conn).iloc[0]['proxima_jornada']
+    except Exception:
+        proxima_jornada = None
+
     if pd.isna(proxima_jornada):
-        log("⚠️ No hay jornada futura para predecir. Salgo sin grabar.")
+        log("⚠️ No se detectó ninguna jornada futura pendiente. Salgo.")
         return
+    
+    log(f"📅 Próxima jornada OBJETIVO: {int(proxima_jornada)}")
 
     # --- FEATURES ---
     df = df_partidos.copy()
-    for num, den, newc in [
-        ('ganados_local',     'partidos_jugados_local',     'ratio_victorias_local'),
-        ('ganados_visitante', 'partidos_jugados_visitante', 'ratio_victorias_visitante'),
-        ('puntos_local',      'partidos_jugados_local',     'ppp_local'),
-        ('puntos_visitante',  'partidos_jugados_visitante', 'ppp_visitante'),
-    ]:
-        df[newc] = df[num] / df[den]
+    
+    cols_num = ['partidos_jugados_local', 'partidos_jugados_visitante', 
+                'ganados_local', 'ganados_visitante', 'puntos_local', 'puntos_visitante']
+    for c in cols_num:
+        df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
 
+    df['ratio_victorias_local'] = df['ganados_local'] / df['partidos_jugados_local'].replace(0, 1)
+    df['ratio_victorias_visitante'] = df['ganados_visitante'] / df['partidos_jugados_visitante'].replace(0, 1)
+    df['ppp_local'] = df['puntos_local'] / df['partidos_jugados_local'].replace(0, 1)
+    df['ppp_visitante'] = df['puntos_visitante'] / df['partidos_jugados_visitante'].replace(0, 1)
     df['abs_dif_goles_local'] = df['dif_goles_local'].abs()
     df['abs_dif_goles_visitante'] = df['dif_goles_visitante'].abs()
 
     features = [c for c in df.columns if any(x in c for x in
-                   ['posicion_', 'puntos_', 'ganados_', 'empatados_', 'perdidos_', 'dif_goles_',
-                    'ratio_', 'ppp_', 'abs_dif_'])]
+               ['posicion_', 'puntos_', 'ganados_', 'empatados_', 'perdidos_', 'dif_goles_',
+                'ratio_', 'ppp_', 'abs_dif_'])]
 
     # --- SPLIT ---
-    df_entrenamiento = df[(df['temporada'] != TEMPORADA_OBJETIVO) |
-                          (df['jornada'] < proxima_jornada)].copy()
-    df_pred = df[(df['temporada'] == TEMPORADA_OBJETIVO) &
-                 (df['jornada'] == proxima_jornada) &
-                 (df['goles_local'].isna())].copy()
+    # Entrenamiento: Todo lo ANTERIOR a la jornada objetivo (incluye la 16 y 17 si ya se jugaron)
+    df_entrenamiento = df[
+        (df['temporada'] != TEMPORADA_OBJETIVO) | 
+        (df['jornada'] < proxima_jornada)
+    ].copy()
+    
+    # Predicción: SOLO la jornada objetivo estricta (==)
+    df_pred = df[
+        (df['temporada'] == TEMPORADA_OBJETIVO) &
+        (df['jornada'] == proxima_jornada) & 
+        (df['goles_local'].isna())
+    ].copy()
 
     if df_pred.empty:
-        log(f"ℹ️ No hay filas para predecir en jornada {proxima_jornada}. Salgo sin grabar.")
+        log(f"ℹ️ No hay partidos pendientes EXACTAMENTE en la jornada {proxima_jornada}. Salgo.")
         return
 
     X_train = df_entrenamiento[features].replace([np.inf, -np.inf], np.nan).fillna(0.0)
     X_test  = df_pred[features].replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-    y_train = df_entrenamiento['resultado_1x2'].map({'1':0,'X':1,'2':2}).astype(int)
+    y_train = df_entrenamiento['resultado_1x2'].map({'1':0,'X':1,'2':2}).fillna(1).astype(int)
     y_train_cat = to_categorical(y_train, num_classes=3)
 
-    # --- NORMALIZACIÓN ---
+    # --- SCALER ---
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled  = scaler.transform(X_test)
 
-    # ------------------------ #
-    # PESOS (clase + temporada) → SOLO sample_weight
-    # ------------------------ #
-    class_weights = compute_class_weight(
-        class_weight='balanced',
-        classes=np.array([0, 1, 2]),
-        y=y_train
-    )
+    # --- WEIGHTS ---
+    class_weights = compute_class_weight('balanced', classes=np.array([0, 1, 2]), y=y_train)
     cw_dict = {i: w for i, w in enumerate(class_weights)}
 
     temporada_arr = df_entrenamiento['temporada'].to_numpy()
     y_arr = y_train.to_numpy()
 
     boost_temporada = np.where(temporada_arr == TEMPORADA_OBJETIVO, 4.0, 1.0).astype(np.float32)
-    peso_clase = np.vectorize(cw_dict.get)(y_arr).astype(np.float32)
+    peso_clase = np.array([cw_dict[y] for y in y_arr]).astype(np.float32)
+    sample_weights = boost_temporada * peso_clase
 
-    sample_weights = boost_temporada * peso_clase  # ← único vector de pesos
-
-    # --- MODELO ---
+    # --- FIT & PREDICT ---
     model = _crear_modelo(X_train.shape[1])
-    model.fit(
-        X_train_scaled,
-        y_train_cat,
-        epochs=40,
-        batch_size=16,
-        verbose=0,
-        sample_weight=sample_weights   # ← sin class_weight
-    )
+    model.fit(X_train_scaled, y_train_cat, epochs=40, batch_size=16, verbose=0, sample_weight=sample_weights)
 
-    # --- PREDICCIONES ---
     probas = model.predict(X_test_scaled, verbose=0)
     preds = probas.argmax(axis=1)
     mapa = {0:'1', 1:'X', 2:'2'}
 
     df_pred = df_pred.copy()
-    df_pred['prediccion_1x2'] = [mapa[p] for p in preds]
+    df_pred['prediccion_1x2'] = [mapa.get(p, 'X') for p in preds]
     df_pred['confianza'] = probas.max(axis=1)
 
-    # Logging resumido
-    log(f"🔮 Predicciones jornada {int(proxima_jornada)} ({TEMPORADA_OBJETIVO}): {len(df_pred)} partidos")
+    log(f"🔮 Predicciones para Jornada {int(proxima_jornada)}: {len(df_pred)} partidos")
     for _, row in df_pred.iterrows():
-        log(f" - {row['equipo_local']} vs {row['equipo_visitante']}: "
-            f"{row['prediccion_1x2']} (confianza: {row['confianza']:.2%})")
+        log(f" - {row['equipo_local']} vs {row['equipo_visitante']}: {row['prediccion_1x2']} ({row['confianza']:.2%})")
 
-    # --- ESCRITURA UPSERT ---
+    # --- UPSERT ---
     df_output = df_pred[['temporada', 'jornada', 'equipo_local', 'equipo_visitante']].copy()
     df_output['modelo'] = 'Neuronal_1X2_Softmax'
     df_output['prediccion_1x2'] = df_pred['prediccion_1x2']
@@ -213,16 +209,5 @@ def post_neuronal_1x2(conn, schema=None):
         tabla='predicciones_jornada',
         clave_conflicto=['temporada', 'jornada', 'equipo_local', 'equipo_visitante', 'modelo']
     )
-
-    # --- DISTRIBUCIONES (solo log informativo) ---
-    dist_real = (df_entrenamiento['resultado_1x2']
-                 .value_counts(normalize=True).rename_axis('resultado')
-                 .reset_index(name='proporcion'))
-    dist_pred = (df_pred['prediccion_1x2']
-                 .value_counts(normalize=True).rename_axis('prediccion')
-                 .reset_index(name='proporcion'))
-
-    log("📊 Distribución real en entrenamiento:\n" + dist_real.to_string(index=False))
-    log("📊 Distribución de predicciones en jornada futura:\n" + dist_pred.to_string(index=False))
 
     log("post_neuronal_1x2: fin OK")
