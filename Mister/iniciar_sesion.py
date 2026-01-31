@@ -109,6 +109,12 @@ def iniciar_sesion(schema=None, headless=False):
     driver = None
     try:
         driver = _build_driver(headless=headless)
+        
+        # --- CASO LOL STATS: No necesita Login ---
+        if schema and schema.lower() == "lol_stats":
+            log(f"Schema '{schema}' detectado: Saltando login de Mister (gol.gg es público)")
+            return driver
+
         wait = WebDriverWait(driver, 25)
 
         # 1) Onboarding
