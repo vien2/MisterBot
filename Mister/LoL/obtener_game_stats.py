@@ -3,7 +3,7 @@ import re
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from utils import log
+from utils import log, conexion_db
 from .utils_lol import get_match_ids, get_completed_matches, obtener_o_crear_jugador, log_scrape_status
 
 def obtener_game_stats(driver, schema="LoL_Stats", **kwargs):
@@ -22,10 +22,15 @@ def obtener_game_stats(driver, schema="LoL_Stats", **kwargs):
             matches = get_match_ids(target_ids, schema=schema)
         else:
             all_matches = get_match_ids(schema=schema)
-            # Check completed matches in log
-            completed_ids = get_completed_matches(schema=schema, entity_type="MATCH")
-            matches = [m for m in all_matches if m.id not in completed_ids]
-            log(f"Matches totales: {len(all_matches)}. Pendientes: {len(matches)}")
+            # Check completed matches using DIRECT DB CHECK (Smart Check)
+            # We want patches that DO NOT have records in lol_stats.game_stats
+            with conexion_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(f"SELECT DISTINCT match_id FROM {schema}.game_stats")
+                    existing_ids = {r[0] for r in cur.fetchall()}
+            
+            matches = [m for m in all_matches if m.id not in existing_ids]
+            log(f"Matches totales: {len(all_matches)}. Con Stats: {len(existing_ids)}. Pendientes reales: {len(matches)}")
 
         if not matches:
             log("No hay matches pendientes.")
@@ -84,35 +89,35 @@ def obtener_game_stats(driver, schema="LoL_Stats", **kwargs):
                             else: col_side_map[c_idx] = "Blue" if c_idx <= 5 else "Red"
                     
                     elif metric == "Player":
-                         for c_idx, c in enumerate(cols[1:], start=1):
-                            pid = 0
-                            p_name = "Unknown"
-                            # Determine intended Team ID based on column side
-                            c_side = col_side_map.get(c_idx, "Blue" if c_idx <= 5 else "Red")
-                            team_id = match.blue_team_id if c_side == "Blue" else match.red_team_id
-                             
-                            try:
-                                lnk = c.find_elements(By.TAG_NAME, "a")
-                                if lnk:
-                                    p_name = lnk[0].get_attribute("textContent").strip()
-                                    # Try extracting PID from href? Or just lookup by name.
-                                    # Using name lookup is safer with our helper.
-                                else:
-                                    p_name = c.get_attribute("textContent").strip()
+                         # Reducimos el logo de conexiones usando un solo bloque para los 10 jugadores
+                         with conexion_db() as player_conn:
+                             for c_idx, c in enumerate(cols[1:], start=1):
+                                pid = 0
+                                p_name = "Unknown"
+                                # Determine intended Team ID based on column side
+                                c_side = col_side_map.get(c_idx, "Blue" if c_idx <= 5 else "Red")
+                                team_id = match.blue_team_id if c_side == "Blue" else match.red_team_id
+                                 
+                                try:
+                                    lnk = c.find_elements(By.TAG_NAME, "a")
+                                    if lnk:
+                                        p_name = lnk[0].get_attribute("textContent").strip()
+                                    else:
+                                        p_name = c.get_attribute("textContent").strip()
 
-                                # Resolve Role
-                                role_val = col_role_map.get(c_idx, "Unknown")
-                                if role_val == "Unknown":
-                                    role_indices = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
-                                    role_val = role_indices[(c_idx - 1) % 5]
+                                    # Resolve Role
+                                    role_val = col_role_map.get(c_idx, "Unknown")
+                                    if role_val == "Unknown":
+                                        role_indices = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
+                                        role_val = role_indices[(c_idx - 1) % 5]
+                                    
+                                    # USAR CONEXION EXTERNA para evitar spam de logs
+                                    pid = obtener_o_crear_jugador(p_name, team_id, role_val, schema=schema, conn_external=player_conn)
+                                    
+                                except Exception as e:
+                                    log(f"    Error parsing player col {c_idx}: {e}")
                                 
-                                # GET OR CREATE PLAYER (Raw SQL)
-                                pid = obtener_o_crear_jugador(p_name, team_id, role_val, schema=schema)
-                                
-                            except Exception as e:
-                                log(f"    Error parsing player col {c_idx}: {e}")
-                            
-                            player_map[c_idx] = pid
+                                player_map[c_idx] = pid
                     else:
                         vals = []
                         for c in cols[1:]: vals.append(c.get_attribute("textContent").strip())
