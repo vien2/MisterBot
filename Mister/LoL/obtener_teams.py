@@ -74,6 +74,45 @@ def obtener_teams(driver, schema="lol_stats", **kwargs):
                         
                     # Extract Name & ID
                     name = target_link.text.strip()
+                    
+                    # Fallback: si no hay texto, intentar title o el alt de la imagen
+                    if not name:
+                         name = target_link.get_attribute("title")
+                    
+                    # Image extraction (try to find img in same row)
+                    img_url = ""
+                    try:
+                        imgs = row.find_elements(By.TAG_NAME, "img")
+                        if imgs: 
+                            # Priorizar data-src si existe (lazy load), sino src
+                            img_src = imgs[0].get_attribute("data-src") or imgs[0].get_attribute("src")
+                            if img_src:
+                                img_url = img_src
+                                if not name: # Último intento de nombre
+                                    name = imgs[0].get_attribute("alt")
+                    except: pass
+                    
+                    # Fallback FINAL: Si no hay imagen, intentar construirla
+                    # Gol.gg suele usar: https://gol.gg/_img/teams/Nombre.png
+                    if not img_url and name:
+                        # OJO: Los nombres pueden tener espacios, hay que ver si la web usa %20 o espacios
+                        # Normalmente en HTML src funcionan los espacios si el navegador lo encodeara,
+                        # pero mejor dejarlo tal cual string y que el frontend lo maneje, o arriesgarnos.
+                        # Probemos con la URL base estándar:
+                        img_url = f"https://gol.gg/_img/teams/{name}.png"
+                        # log(f"⚠️ Imagen construida manualmente para {name}: {img_url}")
+
+                    # Si sigue sin nombre, saltamos (no podemos guardar un equipo fantasma)
+                    if not name:
+                        # log(f"Equipo ignorado (ID detectado pero sin nombre): {href}")
+                        continue
+
+                    # Limpiar nombre (a veces traen basura del title)
+                    # Ejemplo: "Los Ratones stats in LEC 2026 Versus Season" -> "Los Ratones"
+                    name = name.strip()
+                    if "stats in" in name:
+                        name = name.split("stats in")[0].strip()
+
                     href = target_link.get_attribute("href")
                     
                     # href: .../team-stats/2804/split...
@@ -84,21 +123,116 @@ def obtener_teams(driver, schema="lol_stats", **kwargs):
                     team_id = int(parts[0])
                     
                     if team_id in seen_ids: continue
-                    
-                    # Image extraction (try to find img in same row)
-                    img_url = ""
-                    try:
-                        imgs = row.find_elements(By.TAG_NAME, "img")
-                        if imgs: img_url = imgs[0].get_attribute("src")
-                    except: pass
-                    
+
                     code = name if len(name) <= 6 else name[:3].upper()
+                    
+                    # --- INTENTO DE LOCALIZAR LOGO LOCAL (static/logos) ---
+                    # Prioridad: 
+                    # 1. code.lower().png (ej: fnc.png, th.png, vit.png)
+                    # 2. slug_name.webp (ej: team_heretics.webp)
+                    
+                    import os
+                    # Ajusta esta ruta a tu estructura real en el VPS
+                    # Asumimos que MisterBot y MisterBot_Web están al mismo nivel en home
+                    # /home/vien2/MisterBot/Mister (estamos aqui)
+                    # /home/vien2/MisterBot_Web/MisterBot_Web/static/logos (buscamos aqui)
+                    
+                    # Intento de autodetectar ruta relativa o absoluta común
+                    possible_paths = [
+                        "/home/vien2/MisterBot_Web/static/logos", # VPS Correcto
+                        "/home/vien2/MisterBot_Web/MisterBot_Web/static/logos", # VPS Alternativo
+                        "../MisterBot_Web/static/logos", # Local dev relativo
+                        "../../MisterBot_Web/MisterBot_Web/static/logos",
+                        "C:/Python/MisterBot_Web/MisterBot_Web/static/logos" # Local Windows absolute
+                    ]
+                    
+                    local_logo_path = None
+                    final_static_url = ""
+                    
+                    logo_dir = None
+                    for p in possible_paths:
+                        if os.path.exists(p):
+                            logo_dir = p
+                            break
+                    
+                    if logo_dir:
+                        # 0. MAPA MANUAL
+                        manual_map = {
+                            "los ratones": "rat.png",
+                            "karmine corp blue": "kcb.png",
+                            "shifters": "shf.png",
+                            "team heretics": "th.png",
+                            "team vitality": "vit.png",
+                            "sk gaming": "sk.png",
+                            "fnatic": "fnc.png",
+                            "g2 esports": "g2.png",
+                            "giantx": "gx.png",
+                            "karmine corp": "kc.png",
+                            "mad lions koi": "mdk.png",
+                            "movistar koi": "koi.png",  # AÑADIDO
+                            "rogue": "rge.png",
+                            "team bds": "bds.png",
+                            "natus vincere": "navi.png"
+                        }
+                        
+                        clean_name = name.lower().strip()
+                        if clean_name in manual_map:
+                             full_p = os.path.join(logo_dir, manual_map[clean_name])
+                             if os.path.exists(full_p):
+                                  final_static_url = f"/static/logos/{manual_map[clean_name]}"
+                                  log(f"🎯 Logo MANUAL encontrado para {name}: {final_static_url}")
+                        
+                        # Solo buscamos automáticamente si no hemos encontrado el manual
+                        if not final_static_url:
+                            # 1. Probar codigo (fnc.png)
+                            candidates = [
+                                (code.lower() + ".png"),
+                                (name.lower().replace(" ", "_").replace(".", "") + ".webp"),
+                                (name.lower().replace(" ", "_") + ".webp"),
+                                (name.lower().replace(" ", "_") + ".png")
+                            ]
+                            
+                            # log(f"[DEBUG] Buscando logo local en {logo_dir} para {name} (Code: {code})")
+                            for cand in candidates:
+                                full_p = os.path.join(logo_dir, cand)
+                                found = os.path.exists(full_p)
+                                if found:
+                                    final_static_url = f"/static/logos/{cand}"
+                                    log(f"🎯 Logo local encontrado para {name}: {final_static_url}")
+                                    break
+                    else:
+                         # log("[DEBUG] No se encontró directorio de logos en ninguna de las rutas esperadas.")
+                         pass
+
+                    img_url = ""
+                    if final_static_url:
+                        img_url = final_static_url
+                    else:
+                        # Si no hay local, intentamos scraping
+                        try:
+                            imgs = row.find_elements(By.TAG_NAME, "img")
+                            if imgs: 
+                                # Priorizar data-src si existe (lazy load), sino src
+                                img_src = imgs[0].get_attribute("data-src") or imgs[0].get_attribute("src")
+                                if img_src:
+                                    img_url = img_src
+                                    if not name: # Último intento de nombre
+                                        name = imgs[0].get_attribute("alt")
+                        except: pass
+                        
+                        # Fallback FINAL: Si no hay imagen, intentar construirla
+                        # Gol.gg suele usar: https://gol.gg/_img/teams/Nombre.png
+                        if not img_url and name:
+                             img_url = f"https://gol.gg/_img/teams/{name}.png"
+                             # log(f"[DEBUG] Usando fallback web para {name}: {img_url}")
+                    
+                    if not img_url: img_url = "" # Asegurar string vacía, nunca None/NaN
                     
                     data_list.append({
                         "id": team_id,
                         "name": name,
                         "code": code,
-                        "image_url": img_url,
+                        "image_url": img_url, # Será str vacía si falla, no NaN
                         "region": t_region
                     })
                     seen_ids.add(team_id)

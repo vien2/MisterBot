@@ -74,19 +74,34 @@ def obtener_matches(driver, schema="lol_stats", **kwargs):
                     match_date = "1900-01-01"
                     if date_str and date_str != "-":
                         try:
+                            # Intentar formatear. Gol.gg suele usar YYYY-MM-DD
                             dt = datetime.datetime.strptime(date_str, "%Y-%m-%d")
                             match_date = dt.strftime("%Y-%m-%d")
-                        except: pass
+                        except ValueError:
+                             # log(f"⚠️ Formato de fecha desconocido: '{date_str}'")
+                             pass
+                        except Exception: pass
                     
                     patch_str = ""
                     if len(cols) > 5:
                         patch_str = cols[5].text.strip()
 
+                    # FILTER: Check Score (Column 2)
+                    # If it contains "vs" or no score, it's unplayed.
+                    score_str = cols[2].text.strip() # Keep original case for saving
+                    score_lower = score_str.lower()
+                    
+                    # Si filtramos los no jugados, activamos esto:
+                    if "vs" in score_lower or "-" not in score_lower:
+                        # log(f"    Saltando partido no jugado: {match_name} ({date_str})")
+                        continue
+
                     match_links.append({
                         "href": match_href,
                         "name": match_name,
                         "date": match_date,
-                        "patch": patch_str
+                        "patch": patch_str,
+                        "score": score_str
                     })
                 except: continue
 
@@ -98,6 +113,7 @@ def obtener_matches(driver, schema="lol_stats", **kwargs):
                 match_name = m_meta["name"]
                 match_date = m_meta["date"]
                 patch_str = m_meta["patch"]
+                match_score = m_meta.get("score", "")
 
                 # Expansion of Series (For Bo3/Bo5)
                 try:
@@ -165,7 +181,8 @@ def obtener_matches(driver, schema="lol_stats", **kwargs):
                                 "patch": patch_str,
                                 "game_number": g_num,
                                 "series_id": series_id,
-                                "best_of": best_of
+                                "best_of": best_of,
+                                "score": match_score
                             })
                         except: continue
                     
