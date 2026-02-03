@@ -49,35 +49,42 @@ def get_match_ids(target_ids=None, schema="LoL_Stats"):
         log(f"Error recuperando IDs de matches: {e}")
     return matches
 
-def obtener_o_crear_jugador(handle, team_id, role, real_name=None, schema="LoL_Stats"):
+def obtener_o_crear_jugador(handle, team_id, role, real_name=None, schema="LoL_Stats", conn_external=None):
     """
     Busca jugador por handle (case insensitive). Si no existe, lo crea.
-    Devuelve el player_id.
+    Devuelve el player_id. Reutiliza conexión si se provee.
     """
     player_id = None
+    
+    def _execute(conn):
+        with conn.cursor() as cur:
+            # 1. Buscar
+            cur.execute(f"SELECT id FROM {schema}.players WHERE LOWER(handle) = LOWER(%s)", (handle,))
+            res = cur.fetchone()
+            if res:
+                return res[0]
+            
+            # 2. Insertar si no existe
+            log(f"[INFO] Creando jugador: '{handle}' (Team: {team_id}, Role: {role})")
+            insert_query = f"""
+                INSERT INTO {schema}.players (handle, real_name, role, team_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            """
+            cur.execute(insert_query, (handle, real_name or handle, role, team_id))
+            p_id = cur.fetchone()[0]
+            conn.commit()
+            return p_id
+
     try:
-        with conexion_db() as conn:
-            with conn.cursor() as cur:
-                # 1. Buscar
-                cur.execute(f"SELECT id FROM {schema}.players WHERE LOWER(handle) = LOWER(%s)", (handle,))
-                res = cur.fetchone()
-                if res:
-                    return res[0]
-                
-                # 2. Insertar si no existe
-                log(f"[INFO] Creando jugador: '{handle}' (Team: {team_id}, Role: {role})")
-                insert_query = f"""
-                    INSERT INTO {schema}.players (handle, real_name, role, team_id)
-                    VALUES (%s, %s, %s, %s)
-                    RETURNING id
-                """
-                cur.execute(insert_query, (handle, real_name or handle, role, team_id))
-                player_id = cur.fetchone()[0]
-            conn.commit() # Importante commit para que persista
+        if conn_external:
+            return _execute(conn_external)
+        else:
+            with conexion_db() as conn:
+                return _execute(conn)
     except Exception as e:
         log(f"Error gestionando jugador {handle}: {e}")
-    
-    return player_id
+        return None
 
 def log_scrape_status(entity_id, entity_type, status, details=None, schema="LoL_Stats"):
     """

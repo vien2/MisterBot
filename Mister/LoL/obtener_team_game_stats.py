@@ -3,7 +3,7 @@ import re
 import requests
 import json
 from bs4 import BeautifulSoup
-from utils import log
+from utils import log, conexion_db
 from .utils_lol import get_match_ids, get_completed_matches, log_scrape_status
 
 def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
@@ -22,9 +22,23 @@ def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
             matches_to_process = get_match_ids(target_ids, schema=schema)
         else:
             all_matches = get_match_ids(schema=schema)
-            completed_ids = get_completed_matches(schema=schema, entity_type="MATCH_TEAM")
-            matches_to_process = [m for m in all_matches if m.id not in completed_ids]
-            log(f"Matches totales: {len(all_matches)}. Pendientes: {len(matches_to_process)}")
+            # Check completed matches using DIRECT DB CHECK (Smart Check)
+            # We want patches that DO NOT have records in lol_stats.team_game_stats
+            # But we also want to re-scrape if stats are "empty" (gold=0), so we only count VALID stats
+            with conexion_db() as conn:
+                with conn.cursor() as cur:
+                    # Only consider it "done" if we have stats for BOTH teams (count >= 2) and gold > 0
+                    cur.execute(f"""
+                        SELECT match_id 
+                        FROM {schema}.team_game_stats 
+                        WHERE total_gold > 1000 
+                        GROUP BY match_id 
+                        HAVING count(*) >= 2
+                    """)
+                    existing_ids = {r[0] for r in cur.fetchall()}
+            
+            matches_to_process = [m for m in all_matches if m.id not in existing_ids]
+            log(f"Matches totales: {len(all_matches)}. Con Stats Validos: {len(existing_ids)}. Pendientes reales: {len(matches_to_process)}")
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -79,19 +93,59 @@ def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
                          except: return [0,0]
                     return None
 
-                blue_header = soup.find(class_="blue-line-header")
-                if not blue_header:
-                    log("    Headers no encontrados, skipping.")
-                    continue
+                # --- 2. EXTRACT TEAM DATA AND WINNER ---
+                # We find the headers based on text "Blue side" and "Red side" or by finding the DIVs with specific classes
+                # But better: Gol.gg usually has two main headers. One for Blue (left), one for Red (right).
                 
-                blue_head_text = blue_header.get_text(strip=True)
-                blue_name = blue_head_text.split("-")[0].strip()
-                blue_win = "WIN" in blue_head_text
+                def parse_header(header_div):
+                    if not header_div: return None, None, False
+                    link = header_div.find("a")
+                    name = ""
+                    t_id = 0
+                    if link:
+                        name = link.get_text(strip=True)
+                        href = link.get("href")
+                        try: t_id = int(href.split("stats/")[1].split("/")[0])
+                        except: pass
+                    else:
+                        name = header_div.get_text(strip=True).split("-")[0].strip()
+                    
+                    is_win = "WIN" in header_div.get_text(strip=True)
+                    return name, t_id, is_win
 
+                blue_header = soup.find(class_="blue-line-header")
                 red_header = soup.find(class_="red-line-header")
-                red_head_text = red_header.get_text(strip=True)
-                red_name = red_head_text.split("-")[0].strip()
-                red_win = "WIN" in red_head_text
+                
+                blue_name, blue_t_id, blue_win = parse_header(blue_header)
+                red_name, red_t_id, red_win = parse_header(red_header)
+                
+                if not blue_t_id: 
+                    blue_t_id = match.blue_team_id
+                    # Extra Check: If we found Red but not Blue, and match has IDs, ensure we don't swap them
+                    if not blue_t_id and red_t_id and match.blue_team_id == red_t_id:
+                         blue_t_id = match.red_team_id # Swap detected? logic is complex here.
+                         # Better: Just trust Match object if scraper failed
+                
+                if not red_t_id: 
+                    red_t_id = match.red_team_id
+
+                # If still 0, we can't save correctly, but better to save with 0 than skip
+
+                # --- 2.1 UPDATE PARENT MATCH RECORD ---
+                # This is CRITICAL: If the match was discovered as "empty", we must fill it now
+                # so that obtain_game_stats and the Web App know which teams played.
+                try:
+                    with conexion_db() as conn:
+                        with conn.cursor() as cur:
+                            winner_id = blue_t_id if blue_win else (red_t_id if red_win else None)
+                            cur.execute(f"""
+                                UPDATE {schema}.matches 
+                                SET blue_team_id = %s, red_team_id = %s, winner_id = %s 
+                                WHERE id = %s
+                            """, (blue_t_id, red_t_id, winner_id, match.id))
+                        conn.commit()
+                except Exception as e_upd:
+                    log(f"    Warning: No se pudo actualizar el match {match.id}: {e_upd}")
 
                 blue_vis = get_js_dataset("visionData", html_source, blue_name) or [0,0]
                 red_vis = get_js_dataset("visionData", html_source, red_name) or [0,0]
@@ -181,19 +235,23 @@ def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
                         elder_count = len(db_parent.find_all("img", alt=re.compile("Elder", re.IGNORECASE)))
 
                     try:
-                        g_str = boxes[4].get_text().lower().replace('k', '').strip()
-                        if '.' in g_str: g = int(float(g_str) * 1000)
-                        else: g = int(g_str) 
+                        g_str = boxes[4].get_text().lower().strip()
+                        if 'k' in g_str:
+                             g_val = float(g_str.replace('k', ''))
+                             g = int(g_val * 1000)
+                        else:
+                             g = int(float(g_str)) # fallback if no k
                     except: g = 0
                     return k, t, d, b, g, elder_count
 
                 b_kills, b_towers, b_dragons, b_barons, b_gold, b_elder = get_basic_stats(blue_header, "blue_line")
                 r_kills, r_towers, r_dragons, r_barons, r_gold, r_elder = get_basic_stats(red_header, "red_line")
 
-                # Timeline Logic (Simplified for brevity, similar structure to original)
+                # Timeline Logic
                 b_fb, b_ft, r_fb, r_ft = False, False, False, False
-                b_fb_time, b_ft_time, b_fd_time, b_fb_time_baron = None, None, None, None
-                r_fb_time, r_ft_time, r_fd_time, r_fb_time_baron = None, None, None, None
+                # FIX: Init to 0 instead of None to avoid Pandas 'nan' float in Integer columns
+                b_fb_time, b_ft_time, b_fd_time, b_fb_time_baron = 0, 0, 0, 0
+                r_fb_time, r_ft_time, r_fd_time, r_fb_time_baron = 0, 0, 0, 0
                 b_dragon_events, r_dragon_events = [], []
 
                 timeline_container = soup.find("div", class_="flex-wrap")
@@ -223,9 +281,9 @@ def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
                                             else: r_ft, r_ft_time = True, sec
                                         elif "nashor" in alt or "baron" in alt:
                                             if is_blue: 
-                                                if b_fb_time_baron is None: b_fb_time_baron = sec
+                                                if b_fb_time_baron == 0: b_fb_time_baron = sec
                                             else:
-                                                if r_fb_time_baron is None: r_fb_time_baron = sec
+                                                if r_fb_time_baron == 0: r_fb_time_baron = sec
                                         elif "dragon" in alt or "drake" in alt:
                                             dtype = "Unknown"
                                             for k in ["elder","hextech","chemtech","cloud","mountain","ocean","infernal","fire"]:
@@ -233,10 +291,10 @@ def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
                                             evt = {"type": dtype, "time": sec}
                                             if is_blue:
                                                 b_dragon_events.append(evt)
-                                                if b_fd_time is None: b_fd_time = sec
+                                                if b_fd_time == 0: b_fd_time = sec
                                             else:
                                                 r_dragon_events.append(evt)
-                                                if r_fd_time is None: r_fd_time = sec
+                                                if r_fd_time == 0: r_fd_time = sec
 
                 # Construct Dictionaries
                 def create_team_row(team_id, side, win, k, g, t, d, b, e, fb, ft, fbt, ftt, fdt, fbtb, devs, grubs, plates, ptop, pmid, pbot, vis, jg, bans, picks):
@@ -274,8 +332,8 @@ def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
                         "jungle_share_end": jg[1]
                      }
 
-                row_blue = create_team_row(match.blue_team_id, "Blue", blue_win, b_kills, b_gold, b_towers, b_dragons, b_barons, b_elder, b_fb, b_ft, b_fb_time, b_ft_time, b_fd_time, b_fb_time_baron, b_dragon_events, b_grubs, b_plates, b_p_top, b_p_mid, b_p_bot, blue_vis, blue_jg, b_bans, b_picks)
-                row_red = create_team_row(match.red_team_id, "Red", red_win, r_kills, r_gold, r_towers, r_dragons, r_barons, r_elder, r_fb, r_ft, r_fb_time, r_ft_time, r_fd_time, r_fb_time_baron, r_dragon_events, r_grubs, r_plates, r_p_top, r_p_mid, r_p_bot, red_vis, red_jg, r_bans, r_picks)
+                row_blue = create_team_row(blue_t_id, "Blue", blue_win, b_kills, b_gold, b_towers, b_dragons, b_barons, b_elder, b_fb, b_ft, b_fb_time, b_ft_time, b_fd_time, b_fb_time_baron, b_dragon_events, b_grubs, b_plates, b_p_top, b_p_mid, b_p_bot, blue_vis, blue_jg, b_bans, b_picks)
+                row_red = create_team_row(red_t_id, "Red", red_win, r_kills, r_gold, r_towers, r_dragons, r_barons, r_elder, r_fb, r_ft, r_fb_time, r_ft_time, r_fd_time, r_fb_time_baron, r_dragon_events, r_grubs, r_plates, r_p_top, r_p_mid, r_p_bot, red_vis, red_jg, r_bans, r_picks)
                 
                 # Add Deaths/Assists cross-ref (optional, simple logic here assumes mirrored kills)
                 row_blue["total_deaths"], row_blue["total_assists"] = r_kills, 0

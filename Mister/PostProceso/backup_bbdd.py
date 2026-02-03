@@ -68,3 +68,6 @@ def backup_bbdd(conn, schema=None):
     except Exception as e:
         log(f"❌ Error en backup: {e}")
         raise
+
+if __name__ == "__main__":
+    backup_bbdd(None)

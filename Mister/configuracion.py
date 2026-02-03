@@ -26,6 +26,7 @@ from Prediccion.RedNeuronal.Red_Neuronal_1X2_con_softmax import post_neuronal_1x
 from Robo.robo_jugador import robo_jugador
 from LoL.obtener_tournaments import obtener_tournaments
 from LoL.obtener_matches import obtener_matches
+from LoL.obtener_teams import obtener_teams
 from LoL.obtener_team_game_stats import obtener_team_game_stats
 from LoL.obtener_game_stats import obtener_game_stats
 
@@ -98,6 +99,7 @@ def get_funciones_disponibles():
         # LoL Stats
         "tournaments": obtener_tournaments,
         "matches": obtener_matches,
+        "teams": obtener_teams,
         "team_game_stats": obtener_team_game_stats,
         "game_stats": obtener_game_stats
     }

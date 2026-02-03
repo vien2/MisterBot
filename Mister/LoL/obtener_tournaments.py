@@ -34,14 +34,17 @@ def obtener_tournaments(driver, schema=None, target_season="S16", **kwargs):
             name_col = cols[1]
             try:
                 link_el = name_col.find_element(By.TAG_NAME, "a")
-                name = link_el.text.strip()
                 href = link_el.get_attribute("href")
+                
+                # Extract Slug first to use as fallback
+                slug_raw = href.rstrip("/").split("/")[-1]
+                slug = urllib.parse.unquote(slug_raw)
+
+                name = link_el.text.strip()
+                if not name:
+                    name = slug # Fallback
             except:
                 continue
-                
-            # Extract Slug
-            slug_raw = href.rstrip("/").split("/")[-1]
-            slug = urllib.parse.unquote(slug_raw)
             
             # Extract Region
             region = cols[2].text.strip()
