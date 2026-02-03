@@ -282,15 +282,18 @@ def _read_backup_config():
         dest_dir = parser.get("Backup", "dir", fallback=dest_dir)
         retention_days = parser.getint("Backup", "retention_days", fallback=retention_days)
         pg_dump_path = parser.get("Backup", "pg_dump_path", fallback=pg_dump_path).strip()
-        log(f"🔧 _read_backup_config: Backup.dir={dest_dir} · retention_days={retention_days} · pg_dump_path='{pg_dump_path or '(PATH)'}'")
+        backup_all = parser.getboolean("Backup", "backup_all", fallback=False)
+        log(f"🔧 _read_backup_config: Backup.dir={dest_dir} · retention_days={retention_days} · backup_all={backup_all} · pg_dump_path='{pg_dump_path or '(PATH)'}'")
     else:
         log("ℹ️ _read_backup_config: sección [Backup] no encontrada; usando valores por defecto.")
+        backup_all = False
 
     cfg = {
         "db": db_cfg,
         "dest_dir": dest_dir,
         "retention_days": retention_days,
         "pg_dump_path": pg_dump_path,
+        "backup_all": backup_all,
     }
     log("✅ _read_backup_config: fin")
     return cfg
@@ -341,6 +344,49 @@ def _find_pg_dump(pg_dump_path_hint: str) -> str:
 
     msg = "No se encontró 'pg_dump'. Añade su ruta en [Backup] pg_dump_path de config.ini o agrégalo al PATH."
     log(f"❌ _find_pg_dump: {msg}")
+    raise FileNotFoundError(msg)
+
+
+def _find_pg_dumpall(pg_dump_path_hint: str) -> str:
+    """
+    Localiza pg_dumpall, siguiendo la misma lógica que _find_pg_dump.
+    """
+    log("🔎 _find_pg_dumpall: inicio")
+    
+    # Si nos pasan la ruta completa a pg_dump (pista), tratamos de deducir pg_dumpall en la misma carpeta
+    pg_dumpall_hint = ""
+    if pg_dump_path_hint:
+        if os.path.isfile(pg_dump_path_hint):
+            # Si nos dieron /bin/pg_dump, buscamos /bin/pg_dumpall
+            base_dir = os.path.dirname(pg_dump_path_hint)
+            pg_dumpall_hint = os.path.join(base_dir, "pg_dumpall.exe" if os.name == "nt" else "pg_dumpall")
+        elif os.path.isdir(pg_dump_path_hint):
+            pg_dumpall_hint = os.path.join(pg_dump_path_hint, "pg_dumpall.exe" if os.name == "nt" else "pg_dumpall")
+
+    # 1) pista directa (deducida)
+    if pg_dumpall_hint and os.path.isfile(pg_dumpall_hint):
+        log(f"✅ _find_pg_dumpall: encontrado por pista → '{pg_dumpall_hint}'")
+        return pg_dumpall_hint
+
+    # 2) PATH
+    exe = "pg_dumpall.exe" if os.name == "nt" else "pg_dumpall"
+    found = shutil.which(exe)
+    if found:
+        log(f"✅ _find_pg_dumpall: encontrado en PATH → '{found}'")
+        return found
+
+    # 3) Windows: rutas típicas
+    if os.name == "nt":
+        bases = [r"C:\Program Files\PostgreSQL", r"C:\Program Files (x86)\PostgreSQL"]
+        for base in bases:
+            for ver in ("16", "15", "14", "13", "12"):
+                cand = os.path.join(base, ver, "bin", "pg_dumpall.exe")
+                if os.path.isfile(cand):
+                    log(f"✅ _find_pg_dumpall: encontrado en ruta típica → '{cand}'")
+                    return cand
+
+    msg = "No se encontró 'pg_dumpall'. Verifica tu instalación de PostgreSQL."
+    log(f"❌ _find_pg_dumpall: {msg}")
     raise FileNotFoundError(msg)
 
 
@@ -476,6 +522,100 @@ def _run_pg_dump(pg_dump, host, port, dbname, user, password, out_gz_path):
         log(f"✅ _run_pg_dump: OK en {elapsed:0.1f}s · SQL sin comprimir≈{total_bytes/1_048_576:0.1f} MiB · archivo='{out_gz_path}' ({size_gz/1_048_576:0.1f} MiB gz)")
     except Exception as e:
         log(f"⚠️ _run_pg_dump: OK pero no se pudo obtener tamaño del archivo: {e}")
+
+
+def _run_pg_dumpall(pg_dumpall, host, port, user, password, out_gz_path):
+    """
+    Ejecuta pg_dumpall y comprime stdout a GZip.
+    Similar a _run_pg_dump pero para todas las bases de datos.
+    """
+    cmd = [
+        pg_dumpall,
+        "-h", host,
+        "-p", str(port),
+        "-U", user,
+        "-v",          # verbose
+        "-w",          # no prompt password
+        "--clean",     # incluye comandos CLEAN (DROP DATABASE)
+        "--if-exists", 
+        "--no-role-passwords", # Evita error de permisos en pg_authid si no eres superuser
+    ]
+
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+
+    log("▶️ _run_pg_dumpall: ejecutando → " + " ".join(shlex.quote(x) for x in cmd))
+    t0 = time.time()
+
+    stderr_lines = []
+    def _drain_stderr(stream):
+        try:
+            for line in iter(stream.readline, ''):
+                line = line.rstrip()
+                if line:
+                    stderr_lines.append(line)
+                    if ("dumping" in line.lower()) or ("saving" in line.lower()):
+                        log(f"pg_dumpall: {line}")
+        except Exception as e:
+            log(f"⚠️ _run_pg_dumpall: error leyendo stderr: {e}")
+
+    with subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        text=True,
+        bufsize=1
+    ) as proc, gzip.open(out_gz_path, "wb") as gz_out:
+
+        assert proc.stderr is not None
+        t_err = threading.Thread(target=_drain_stderr, args=(proc.stderr,), daemon=True)
+        t_err.start()
+
+        total_bytes = 0
+        last_log = t0
+        try:
+            raw_stdout = proc.stdout
+            while True:
+                chunk = raw_stdout.buffer.read(1024 * 256) if hasattr(raw_stdout, "buffer") else raw_stdout.read(1024 * 256)
+                if not chunk:
+                    break
+                if isinstance(chunk, str):
+                    chunk = chunk.encode("utf-8", errors="ignore")
+                gz_out.write(chunk)
+                total_bytes += len(chunk)
+
+                now = time.time()
+                if now - last_log >= 5:
+                    log(f"⏳ _run_pg_dumpall: {total_bytes/1_048_576:0.1f} MiB leídos…")
+                    last_log = now
+
+        except Exception as e:
+            log(f"❌ _run_pg_dumpall: excepción: {e}. Matando proceso…")
+            proc.kill()
+            t_err.join(timeout=1)
+            raise e
+
+        ret = proc.wait()
+        t_err.join(timeout=5)
+        elapsed = time.time() - t0
+
+        if ret != 0:
+            err_txt = out_gz_path.replace(".sql.gz", ".stderr.txt")
+            try:
+                with open(err_txt, "w", encoding="utf-8") as f:
+                    f.write("\n".join(stderr_lines))
+                log(f"❌ _run_pg_dumpall: returncode={ret}. STDERR → {err_txt}")
+            except Exception:
+                pass
+            raise RuntimeError(f"pg_dumpall salió con código {ret}.")
+
+    try:
+        size_gz = os.path.getsize(out_gz_path)
+        log(f"✅ _run_pg_dumpall: OK en {elapsed:0.1f}s · {total_bytes/1_048_576:0.1f} MiB raw · gz='{out_gz_path}'")
+    except Exception:
+        pass
 
 def _read_cleanup_config():
     parser = ConfigParser()

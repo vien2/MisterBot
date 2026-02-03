@@ -9,7 +9,7 @@ Postproceso: backup de la base de datos PostgreSQL
 import os
 import time
 from datetime import datetime
-from utils import log,_read_backup_config,_find_pg_dump,_ensure_dir,_run_pg_dump,_rotate_backups
+from utils import log,_read_backup_config,_find_pg_dump,_find_pg_dumpall,_ensure_dir,_run_pg_dump,_run_pg_dumpall,_rotate_backups
 
 
 def backup_bbdd(conn, schema=None):
@@ -35,28 +35,47 @@ def backup_bbdd(conn, schema=None):
 
     dest_dir = cfg["dest_dir"]
     retention_days = int(cfg["retention_days"])
-    pg_dump = _find_pg_dump(cfg["pg_dump_path"])
+    backup_all = cfg.get("backup_all", False)
 
     _ensure_dir(dest_dir)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    prefix = f"backup_{dbname}"
+
+    if backup_all:
+        prefix = "backup_ALL_DBS"
+        pg_tool = _find_pg_dumpall(cfg["pg_dump_path"])
+    else:
+        prefix = f"backup_{dbname}"
+        pg_tool = _find_pg_dump(cfg["pg_dump_path"])
+
     out_name = f"{prefix}_{ts}.sql.gz"
     out_path = os.path.join(dest_dir, out_name)
 
-    log(f"Destino: {out_path}")
+    log(f"Destino: {out_path} (Backup all: {backup_all})")
 
     try:
         t0 = time.time()
-        _run_pg_dump(
-            pg_dump=pg_dump,
-            host=host,
-            port=port,
-            dbname=dbname,
-            user=user,
-            password=password,
-            out_gz_path=out_path
-        )
+        
+        if backup_all:
+             _run_pg_dumpall(
+                pg_dumpall=pg_tool,
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                out_gz_path=out_path
+            )
+        else:
+            _run_pg_dump(
+                pg_dump=pg_tool,
+                host=host,
+                port=port,
+                dbname=dbname,
+                user=user,
+                password=password,
+                out_gz_path=out_path
+            )
+
         secs = time.time() - t0
         size_mb = os.path.getsize(out_path) / (1024 * 1024.0)
         log(f"✅ Backup OK en {secs:0.1f}s · {size_mb:0.1f} MB → {out_path}")
