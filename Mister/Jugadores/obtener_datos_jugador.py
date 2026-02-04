@@ -328,7 +328,7 @@ def obtener_datos_jugador(driver, schema=None):
 
 
         datos_de_jugadores.append(datos_jugador)
-        log(f"Jugador procesado: {datos_jugador}")
+        #log(f"Jugador procesado: {datos_jugador}")
 
     log(f"obtener_datos_jugador: Finalización con {len(datos_de_jugadores)} jugadores procesados")
     return datos_de_jugadores
@@ -428,7 +428,7 @@ def obtener_datos_jornadas(driver, schema):
                         if "#not-played" in inner_html:
                             datos_jornada["SancionOLesion"] = "No jugó la jornada"
                             datos_jornadas.append(datos_jornada)
-                            log(f"{name} {surname} J{numero_jornada}: detectado not-played → No jugó la jornada")
+                            #log(f"{name} {surname} J{numero_jornada}: detectado not-played → No jugó la jornada")
                             jornadas_insertadas.append(numero_jornada)
                             # borrar de pendientes si estaba
                             cur.execute(
@@ -441,7 +441,7 @@ def obtener_datos_jornadas(driver, schema):
                         elif "#injury" in inner_html:
                             datos_jornada["SancionOLesion"] = "Lesionado"
                             datos_jornadas.append(datos_jornada)
-                            log(f"{name} {surname} J{numero_jornada}: detectado injury → Lesionado")
+                            #log(f"{name} {surname} J{numero_jornada}: detectado injury → Lesionado")
                             jornadas_insertadas.append(numero_jornada)
                             cur.execute(
                                 f"DELETE FROM {schema}.progreso_jornadas_pendientes "
@@ -453,7 +453,7 @@ def obtener_datos_jornadas(driver, schema):
                         elif "#suspension" in inner_html:
                             datos_jornada["SancionOLesion"] = "Sancionado"
                             datos_jornadas.append(datos_jornada)
-                            log(f"{name} {surname} J{numero_jornada}: detectado suspension → Sancionado")
+                            #log(f"{name} {surname} J{numero_jornada}: detectado suspension → Sancionado")
                             jornadas_insertadas.append(numero_jornada)
                             cur.execute(
                                 f"DELETE FROM {schema}.progreso_jornadas_pendientes "
@@ -465,7 +465,7 @@ def obtener_datos_jornadas(driver, schema):
                         elif "#other" in inner_html:
                             datos_jornada["SancionOLesion"] = "No convocado"
                             datos_jornadas.append(datos_jornada)
-                            log(f"{name} {surname} J{numero_jornada}: detectado other → No convocado")
+                            #log(f"{name} {surname} J{numero_jornada}: detectado other → No convocado")
                             jornadas_insertadas.append(numero_jornada)
                             cur.execute(
                                 f"DELETE FROM {schema}.progreso_jornadas_pendientes "
@@ -492,7 +492,7 @@ def obtener_datos_jornadas(driver, schema):
                                 if "no ha puntuado" in toast.text.lower():
                                     datos_jornada["SancionOLesion"] = "No jugó la jornada"
                                     stats_extraidos = True
-                                    log(f"{name} {surname} J{numero_jornada}: detectado toast → No jugó la jornada")
+                                    #log(f"{name} {surname} J{numero_jornada}: detectado toast → No jugó la jornada")
                                     datos_jornadas.append(datos_jornada)
                                     jornadas_insertadas.append(numero_jornada)
                                     cur.execute(
@@ -515,10 +515,10 @@ def obtener_datos_jornadas(driver, schema):
                                 driver.execute_script("arguments[0].click();", boton_stats)
                             except TimeoutException:
                                 if datos_jornada.get("Eventos"):
-                                    log(f"{name} {surname} J{numero_jornada}: sin estadísticas avanzadas pero con eventos")
+                                    #log(f"{name} {surname} J{numero_jornada}: sin estadísticas avanzadas pero con eventos")
                                     datos_jornada["SancionOLesion"] = ""
                                 else:
-                                    log(f"{name} {surname} J{numero_jornada}: jugó pero Mister no da estadísticas → Sin estadísticas avanzadas")
+                                    #log(f"{name} {surname} J{numero_jornada}: jugó pero Mister no da estadísticas → Sin estadísticas avanzadas")
                                     datos_jornada["SancionOLesion"] = "Sin estadísticas avanzadas"
 
                                 stats_extraidos = True
@@ -557,8 +557,8 @@ def obtener_datos_jornadas(driver, schema):
                             datos_jornada["SancionOLesion"] = "No se pudieron extraer estadísticas"
 
                         datos_jornadas.append(datos_jornada)
-                        log(f"Datos extraídos para {name} {surname} en jornada {numero_jornada}")
-                        log(f"→ Datos: {datos_jornada}")
+                        #log(f"Datos extraídos para {name} {surname} en jornada {numero_jornada}")
+                        #log(f"→ Datos: {datos_jornada}")
                         jornadas_insertadas.append(numero_jornada)
 
                         # borrar pendiente si estaba
@@ -683,16 +683,16 @@ def obtener_datos_jornadas_inicial(driver, schema, max_jornada=34, salto=2):
                         if "Sancionado" in bar_negative_text:
                             datos_jornada['SancionOLesion'] = 'Sancionado'
                             datos_jornadas.append(datos_jornada)
-                            log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (Sancionado)")
-                            log(f"→ Datos: {datos_jornada}")
+                            #log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (Sancionado)")
+                            #log(f"→ Datos: {datos_jornada}")
                             jornadas_insertadas.append(numero_jornada)
                             continue
 
                         elif score == "Sin puntuación" and not bar_negatives:
                             datos_jornada['SancionOLesion'] = 'No jugó la jornada'
                             datos_jornadas.append(datos_jornada)
-                            log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (No jugó)")
-                            log(f"→ Datos: {datos_jornada}")
+                            #log(f"Datos extraídos para {name} {surname} en jornada {gw_text} (No jugó)")
+                            #log(f"→ Datos: {datos_jornada}")
                             jornadas_insertadas.append(numero_jornada)
                             continue
 
@@ -771,8 +771,8 @@ def obtener_datos_jornadas_inicial(driver, schema, max_jornada=34, salto=2):
                             datos_jornada['SancionOLesion'] = 'No se pudieron extraer estadísticas'
 
                         datos_jornadas.append(datos_jornada)
-                        log(f"Datos extraídos para {name} {surname} en jornada {gw_text}")
-                        log(f"→ Datos: {datos_jornada}")
+                        #log(f"Datos extraídos para {name} {surname} en jornada {gw_text}")
+                        #log(f"→ Datos: {datos_jornada}")
                         jornadas_insertadas.append(numero_jornada)
 
                     except Exception:
@@ -857,7 +857,7 @@ def obtener_registros_transferencia(driver, schema=None):
                     "id_jugador": player_id
                 }
                 todos_registros.append(registro)
-                log(f"obtener_registros_transferencia: Registro añadido - {name} {surname} | {tipo_operacion} de {usuario_origen} a {usuario_destino}")
+                #log(f"obtener_registros_transferencia: Registro añadido - {name} {surname} | {tipo_operacion} de {usuario_origen} a {usuario_destino}")
 
             except Exception as e:
                 log(f"obtener_registros_transferencia: Error procesando registro para {name}: {e}")
@@ -998,7 +998,7 @@ def obtener_valores(driver, schema=None):
                     "right": right
                 }
                 valores.append(registro)
-                log(f"obtener_valores: Valor añadido - {name} {surname} | {top} | {bottom} | {right}")
+                #log(f"obtener_valores: Valor añadido - {name} {surname} | {top} | {bottom} | {right}")
             except Exception as e:
                 log(f"obtener_valores: Error procesando valor de {name} {surname}: {e}")
                 continue

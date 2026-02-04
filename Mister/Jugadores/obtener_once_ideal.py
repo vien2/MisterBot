@@ -126,7 +126,7 @@ def obtener_best_xi_jornadas_finalizadas(driver, schema=None):
                         "puntos": puntos,
                         "jornada": jornada_texto
                     })
-                    log(f"obtener_best_xi_jornadas_finalizadas: {nombre} ({id_jugador}) - {puntos} puntos en {jornada_texto}")
+                    #log(f"obtener_best_xi_jornadas_finalizadas: {nombre} ({id_jugador}) - {puntos} puntos en {jornada_texto}")
                 except Exception as e:
                     log(f"obtener_best_xi_jornadas_finalizadas: Error procesando jugador en '{jornada_texto}': {e}")
                     continue
