@@ -73,7 +73,7 @@ def obtener_mercado(driver, schema=None):
             }
 
             datos_mercado.append(datos_jugador)
-            log(f"obtener_mercado: Jugador añadido - {nombre} | {precio} | {puntuacion_media}")
+            #log(f"obtener_mercado: Jugador añadido - {nombre} | {precio} | {puntuacion_media}")
     except Exception as e:
         log(f"obtener_mercado: Error al procesar los datos del mercado: {e}")
 
