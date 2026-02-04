@@ -328,6 +328,7 @@ def main():
         df_db_matches['confianza'] = df_db_matches['prob_media']
         # El 1X2 es obligatorio en la tabla, marcamos que es un modelo de amarillas
         df_db_matches['prediccion_1x2'] = '-' 
+        df_db_matches['goles_esperados'] = None
         
         cols_match = ['temporada', 'jornada', 'equipo_local', 'equipo_visitante', 'modelo', 'confianza', 'tarjetas_esperadas', 'prediccion_1x2']
         df_db_matches = df_db_matches[cols_match]
