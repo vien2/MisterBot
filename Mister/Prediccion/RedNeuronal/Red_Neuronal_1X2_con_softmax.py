@@ -202,6 +202,7 @@ def post_neuronal_1x2(conn, schema=None):
     df_output['modelo'] = 'Neuronal_1X2_Softmax'
     df_output['prediccion_1x2'] = df_pred['prediccion_1x2']
     df_output['confianza'] = df_pred['confianza']
+    df_output['tarjetas_esperadas'] = None
 
     cargar_dataframe_postgresql(
         df_output,
