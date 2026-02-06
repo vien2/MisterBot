@@ -178,7 +178,8 @@ def iniciar_sesion(schema=None, headless=False):
         if schema:
             log(f"Buscando liga correspondiente al schema '{schema}'...")
             def norm(s: str) -> str:
-                return s.lower().replace(" ", "").replace("_", "").replace("fc", "").strip()
+                return s.lower().replace(" ", "").replace("_", "").replace("-", "").replace("fc", "").strip()
+
             try:
                 sidebar = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "sidebar")))
                 liga_links = sidebar.find_elements(By.CSS_SELECTOR, ".communities ul li a")

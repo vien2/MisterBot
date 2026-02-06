@@ -213,7 +213,7 @@ def obtener_urls_desde_db(schema, tabla="urls_jugadores"):
     try:
         with conexion_db() as conn:
             with conn.cursor() as cur:
-                cur.execute(f"SELECT url FROM {schema}.{tabla} WHERE temporada = '{temporada}'")
+                cur.execute(f'SELECT url FROM "{schema}"."{tabla}" WHERE temporada = \'{temporada}\'')
                 urls = [row[0] for row in cur.fetchall()]
                 log(f"obtener_urls_desde_db: Se obtuvieron {len(urls)} URLs")
     except Exception as e:
