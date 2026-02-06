@@ -17,12 +17,12 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
             with conn.cursor() as cur:
 
                 if tipo_carga == "total":
-                    cur.execute(f"DELETE FROM {schema}.{tabla}")
+                    cur.execute(f'DELETE FROM "{schema}"."{tabla}"')
                     log(f"Carga total: datos previos eliminados de {schema}.{tabla}")
 
                 elif tipo_carga == "incremental" and incremental_field:
                     cur.execute(f"""
-                        SELECT valor_incremental FROM {schema}.incremental_load_info 
+                        SELECT valor_incremental FROM "{schema}".incremental_load_info 
                         WHERE tabla = %s
                     """, (tabla,))
                     resultado = cur.fetchone()
@@ -45,7 +45,7 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
 
                 elif tipo_carga == "diferencial" and hash_field and clave_conflicto:
                     conflicto_cols = ', '.join(clave_conflicto)
-                    cur.execute(f"SELECT {conflicto_cols}, {hash_field} FROM {schema}.{tabla}")
+                    cur.execute(f'SELECT {conflicto_cols}, {hash_field} FROM "{schema}"."{tabla}"')
                     registros_db = {
                         tuple(map(str, row[:-1])): row[-1] for row in cur.fetchall()
                     }
@@ -90,7 +90,7 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                     conflict_clause = f'ON CONFLICT ({conflict_keys}) DO UPDATE SET {updates}'
 
                 insert_query = f"""
-                    INSERT INTO {schema}.{tabla} ({columnas_sql})
+                    INSERT INTO "{schema}"."{tabla}" ({columnas_sql})
                     VALUES %s
                     {conflict_clause};
                 """
@@ -99,7 +99,7 @@ def cargar_csv_postgresql(ruta_csv, schema, tabla, tipo_carga, incremental_field
                 if tipo_carga == "incremental" and incremental_field:
                     max_value = df[incremental_field].max()
                     cur.execute(f"""
-                        INSERT INTO {schema}.incremental_load_info(tabla, valor_incremental)
+                        INSERT INTO "{schema}".incremental_load_info(tabla, valor_incremental)
                         VALUES (%s, %s)
                         ON CONFLICT (tabla) DO UPDATE SET valor_incremental = EXCLUDED.valor_incremental;
                     """, (tabla, str(max_value)))

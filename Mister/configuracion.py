@@ -29,6 +29,7 @@ from LoL.obtener_matches import obtener_matches
 from LoL.obtener_teams import obtener_teams
 from LoL.obtener_team_game_stats import obtener_team_game_stats
 from LoL.obtener_game_stats import obtener_game_stats
+from PostProceso.migrar_datos_chavalitos import migrar_datos_chavalitos
 
 # Diccionario base para los tipos de CSV que vas a generar
 BASE_FILENAME_CONFIG = {
@@ -101,5 +102,7 @@ def get_funciones_disponibles():
         "matches": obtener_matches,
         "teams": obtener_teams,
         "team_game_stats": obtener_team_game_stats,
-        "game_stats": obtener_game_stats
+        "game_stats": obtener_game_stats,
+        # Migraciones
+        "migrar_datos_chavalitos": migrar_datos_chavalitos
     }
