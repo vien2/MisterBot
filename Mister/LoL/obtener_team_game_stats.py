@@ -74,6 +74,12 @@ def obtener_team_game_stats(driver, schema="LoL_Stats", **kwargs):
                                     duration_sec = int(parts[0]) * 60 + int(parts[1])
                                 except: pass
 
+                # --- VALIDATE MATCH STATUS ---
+                # Should not process matches with 0 duration or unplayed
+                if duration_sec < 300: # Less than 5 mins implies remake or unplayed
+                     log(f"    Skipping {match.id}: Invalid Duration ({duration_sec}s). Likely unplayed.")
+                     continue
+
                 patch_text = "Unknown"
                 patch_div = soup.find(lambda tag: tag.name == "div" and "col-3" in tag.get("class", []) and " v" in tag.get_text())
                 if patch_div:

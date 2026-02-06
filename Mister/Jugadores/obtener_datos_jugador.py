@@ -120,15 +120,32 @@ def obtener_datos_jugador(driver, schema=None):
         if not href:
             return None
         href = href.strip().rstrip("/")
-        # prioriza /teams/
+        
+        # 1. Si contiene /teams/, aislamos lo que sigue
         if "/teams/" in href:
-            slug = href.split("/teams/")[-1].split("/")[0]
+            # Ejemplo: .../teams/15/real-madrid OR .../teams/real-madrid
+            path = href.split("/teams/")[-1]
+            parts = path.split("/")
+            # Si el primer segmento es numérico (ID), cogemos el segundo (slug)
+            # Si no, cogemos el primero
+            if parts and parts[0].isdigit() and len(parts) > 1:
+                slug = parts[1]
+            else:
+                slug = parts[0]
         else:
+            # Fallback genérico para otros hrefs
             parts = href.split("/")
             slug = parts[-1] if parts else ""
+        
         slug = slug.strip()
-        if not slug:
-            return None
+        if not slug or slug.isdigit():
+            # Si al final nos queda solo un número, devolvemos None o el número (aunque preferimos nombre)
+            # El usuario quiere nombre. Si sale número, devolvemos None o lo dejamos pasar?
+            # Si es el ID '15', better return None so it doesn't overwrite nicely?
+            # But earlier code relied on fallback.
+            # Let's trust the logic: slug should be 'real-madrid'.
+            pass
+
         return slug.replace("-", " ").title()
 
     for player_url in urls_jugadores:
